@@ -561,6 +561,7 @@ function tracked() {
 
 let selectMode = false, compareMode = true;  // compareMode = calendar view (the default)
 let sortDate = null;  // calendar: date whose fares order the rows (null = cheapest route first)
+let sortBest = false;  // calendar: sort by best price (skiplagged when cheaper) instead of nonstop; resets on load
 // "Compare dates": one row per route, one column per date, cheapest tracked nonstop in each cell.
 function compareHtml(watches) {
   const rows = new Map();  // "O-D" -> {date: {price, key, airline, skip}}
@@ -577,16 +578,23 @@ function compareHtml(watches) {
   if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
   const tables = [["Heading north", [...rows].filter(([k]) => NORTH_AIRPORTS.has(k.split("-")[1]))],
                   ["Heading south and elsewhere", [...rows].filter(([k]) => !NORTH_AIRPORTS.has(k.split("-")[1]))]];
-  let out = `<p class="small muted" style="margin:10px 0 0">Cheapest nonstop of the versions you track, per route and date. Green: the route's cheapest date. Purple: its cheapest skiplagged fare. Tap a date to sort by it; tap a fare to open that route.</p>`;
+  let out = `<p class="small muted" style="margin:10px 0 0">Cheapest nonstop of the versions you track, per route and date. Green: the route's cheapest date. Purple: its cheapest skiplagged fare. Tap a date to sort by it; tap a fare to open that route.</p>
+    <div class="row" style="align-items:center;margin:10px 0 0"><span class="small muted">Sort by</span><div class="seg">
+      <label><input type="radio" name="sortby" value="nonstop"${sortBest ? "" : " checked"}>Nonstop</label>
+      <label><input type="radio" name="sortby" value="best"${sortBest ? " checked" : ""}>Best price (skiplagged when cheaper)</label>
+    </div></div>`;
   for (const [title, list] of tables) {
     if (!list.length) continue;
     const dates = [...new Set(list.flatMap(([, r]) => Object.keys(r)))].sort();
+    // The price rows are ordered by: nonstop, or with "Best price" the skiplagged fare when it's lower.
+    const sortPrice = c => sortBest && c.skip && c.skip < c.price ? c.skip : c.price;
     const cheapest = r => Math.min(...Object.values(r).map(c => c.price));
+    const cheapestSort = r => Math.min(...Object.values(r).map(sortPrice));
     const sortingBy = dates.includes(sortDate) ? sortDate : null;
     // Default: cheapest route first. Sorted by a date: that date's fare, routes without one last.
     list.sort((a, b) => sortingBy
-      ? (a[1][sortingBy]?.price ?? Infinity) - (b[1][sortingBy]?.price ?? Infinity) || cheapest(a[1]) - cheapest(b[1])
-      : cheapest(a[1]) - cheapest(b[1]));
+      ? (a[1][sortingBy] ? sortPrice(a[1][sortingBy]) : Infinity) - (b[1][sortingBy] ? sortPrice(b[1][sortingBy]) : Infinity) || cheapestSort(a[1]) - cheapestSort(b[1])
+      : cheapestSort(a[1]) - cheapestSort(b[1]));
     out += `<div class="group"><h3>${title}</h3></div><div class="card tablewrap"><table class="grid"><thead><tr><th>Route</th>${
       dates.map(d => `<th class="num"><button class="sortdate${d === sortingBy ? " on" : ""}" data-sort-date="${d}" title="${d === sortingBy ? "Back to cheapest route first" : "Sort by the fare on this date"}">${esc(niceDate(d))}${d === sortingBy ? " ↑" : ""}</button></th>`).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
         const min = cheapest(r), many = Object.keys(r).length > 1;
@@ -1116,6 +1124,7 @@ for (const [f, t] of [["bulkFrom", "bulkTo"]]) {
 }
 document.addEventListener("change", e => {
   const t = e.target;
+  if (t.name === "sortby") { sortBest = t.value === "best"; render(); return; }
   if (t.dataset?.sel) { t.checked ? selected.add(t.dataset.sel) : selected.delete(t.dataset.sel); render(); }
   else if (t.dataset?.selDay) {
     const [dep, ret] = t.dataset.selDay.split("|");
