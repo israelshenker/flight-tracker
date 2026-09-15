@@ -92,15 +92,16 @@ ol li{margin-bottom:6px}
 .empty{text-align:center;padding:30px 10px}
 table.grid th,table.grid td{white-space:nowrap}
 table.grid tbody th{text-align:left;font-weight:600}
+table.grid thead th:first-child,table.grid tbody th{position:sticky;left:0;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--line)}
+button.sortdate{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer}
+button.sortdate.on{color:var(--accent);font-weight:650}
 table.grid td a{color:var(--ink);text-decoration:none;font-weight:600}
 table.grid td a.up{color:var(--up)}
 table.grid td a.down{color:var(--down)}
 table.grid td.best{background:color-mix(in srgb,var(--down) 13%,transparent)}
 table.grid td.best a{text-decoration:underline;text-decoration-color:var(--down);text-underline-offset:3px}
-.gsk{display:block;font-size:11px;font-weight:600;color:#a21caf;border-radius:4px;padding:0 3px;margin-inline:-3px}
+.gsk{display:block;font-size:11px;font-weight:600;color:#a21caf;border-radius:4px;padding:0 3px;margin:1px -3px 0}
 .gsk.best{background:color-mix(in srgb,#c026d3 16%,transparent)}
-table.grid thead th:first-child,table.grid tbody th{position:sticky;left:0;z-index:1;background:var(--card)}
-table.grid tbody th{box-shadow:1px 0 0 var(--line)}
 @media (prefers-color-scheme:dark){.gsk{color:#f0abfc}}
 .selbar{position:sticky;bottom:0;z-index:5;background:var(--card);border:1px solid var(--accent);border-radius:14px;padding:10px 14px;margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;box-shadow:0 -4px 16px rgba(0,0,0,.12)}
 .selbar b{margin-right:6px}
@@ -558,7 +559,8 @@ function tracked() {
   return out.sort((a, b) => (a.depart + (a.return || "")).localeCompare(b.depart + (b.return || "")) || a.origin.localeCompare(b.origin) || a.dest.localeCompare(b.dest) || optsCode(a).localeCompare(optsCode(b)));
 }
 
-let selectMode = false, compareMode = true;  // "Compare dates" is the default view
+let selectMode = false, compareMode = true;  // compareMode = calendar view (the default)
+let sortDate = null;  // calendar: date whose fares order the rows (null = cheapest route first)
 // "Compare dates": one row per route, one column per date, cheapest tracked nonstop in each cell.
 function compareHtml(watches) {
   const rows = new Map();  // "O-D" -> {date: {price, key, airline, skip}}
@@ -575,20 +577,26 @@ function compareHtml(watches) {
   if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
   const tables = [["Heading north", [...rows].filter(([k]) => NORTH_AIRPORTS.has(k.split("-")[1]))],
                   ["Heading south and elsewhere", [...rows].filter(([k]) => !NORTH_AIRPORTS.has(k.split("-")[1]))]];
-  let out = `<p class="small muted" style="margin:10px 0 0">Cheapest nonstop of the versions you track, per route and date. The cheapest date for each route is highlighted; a skiplagged fare shows underneath when it's lower. Tap a fare to open that route.</p>`;
+  let out = `<p class="small muted" style="margin:10px 0 0">Cheapest nonstop of the versions you track, per route and date. Green: the route's cheapest date. Purple: its cheapest skiplagged fare. Tap a date to sort by it; tap a fare to open that route.</p>`;
   for (const [title, list] of tables) {
     if (!list.length) continue;
     const dates = [...new Set(list.flatMap(([, r]) => Object.keys(r)))].sort();
-    list.sort((a, b) => Math.min(...Object.values(a[1]).map(c => c.price)) - Math.min(...Object.values(b[1]).map(c => c.price)));
+    const cheapest = r => Math.min(...Object.values(r).map(c => c.price));
+    const sortingBy = dates.includes(sortDate) ? sortDate : null;
+    // Default: cheapest route first. Sorted by a date: that date's fare, routes without one last.
+    list.sort((a, b) => sortingBy
+      ? (a[1][sortingBy]?.price ?? Infinity) - (b[1][sortingBy]?.price ?? Infinity) || cheapest(a[1]) - cheapest(b[1])
+      : cheapest(a[1]) - cheapest(b[1]));
     out += `<div class="group"><h3>${title}</h3></div><div class="card tablewrap"><table class="grid"><thead><tr><th>Route</th>${
-      dates.map(d => `<th class="num">${esc(niceDate(d))}</th>`).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
-        const min = Math.min(...Object.values(r).map(c => c.price)), many = Object.keys(r).length > 1;
-        const skips = Object.values(r).filter(c => c.skip && c.skip < c.price).map(c => c.skip);
-        const minSkip = Math.min(...skips), manySkips = skips.length > 1;
+      dates.map(d => `<th class="num"><button class="sortdate${d === sortingBy ? " on" : ""}" data-sort-date="${d}" title="${d === sortingBy ? "Back to cheapest route first" : "Sort by the fare on this date"}">${esc(niceDate(d))}${d === sortingBy ? " ↑" : ""}</button></th>`).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
+        const min = cheapest(r), many = Object.keys(r).length > 1;
+        const skips = Object.values(r).map(c => c.skip && c.skip < c.price ? c.skip : null).filter(Boolean);
+        const skipMin = Math.min(...skips), manySkips = skips.length > 1;
         return `<tr><th scope="row">${esc(route.replace("-", " → "))}</th>${dates.map(d => {
           const c = r[d];
           if (!c) return `<td class="num muted">—</td>`;
-          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${c.skip && c.skip < c.price ? `<span class="gsk${manySkips && c.skip === minSkip ? " best" : ""}">skip $${c.skip}</span>` : ""}</td>`;
+          const sk = c.skip && c.skip < c.price ? c.skip : null;
+          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
         }).join("")}</tr>`;
       }).join("")}</tbody></table></div>`;
   }
@@ -695,7 +703,7 @@ function render() {
       <select id="selKind"><option value="">Select by type…</option><option value="plain">No bags, any time</option><option value="bags">With bags</option><option value="times">With a time window</option><option value="alert">With a price alert</option><option value="none">No nonstop found</option><option value="skip">Has a cheaper skiplagged fare</option></select>
       <button class="link small" data-sel-clear="1">Clear</button></div>`;
   } else {
-    html = `<div class="toolbar"><button class="link small" data-compare="1">${compareMode ? "List view" : "Compare dates"}</button><button class="link small" data-select-mode="1">Select routes</button><button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button></div>`;
+    html = `<div class="toolbar"><button class="link small" data-compare="1">${compareMode ? "List view" : "Calendar view"}</button><button class="link small" data-select-mode="1">Select routes</button>${compareMode ? "" : `<button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button>`}</div>`;
   }
   for (const [g, ws] of groups) {
     const [dep, ret] = g.split("|");
@@ -1235,6 +1243,7 @@ document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b || b.disabled) return;
   if (b.dataset.compare) { compareMode = !compareMode; render(); window.scrollTo({top: 0}); }
+  else if (b.dataset.sortDate) { sortDate = sortDate === b.dataset.sortDate ? null : b.dataset.sortDate; render(); }
   else if (b.dataset.selectMode) { selectMode = true; selected.clear(); show(null); render(); }
   else if (b.dataset.selAll) { for (const w of tracked()) selected.add(wKey(w)); render(); }
   else if (b.dataset.selClear) { selected.clear(); render(); }
