@@ -61,12 +61,14 @@ BEYOND_NORTH = ["BOS", "BUF", "ROC", "SYR", "ALB", "BTV", "PWM", "BDL", "PVD", "
                 "PIT", "CLE", "DTW", "ORD", "MDW", "CMH", "CVG", "IND", "GRR", "MKE",
                 "MSP", "STL", "MCI", "DEN", "RDU", "CLT", "GSO", "RIC", "ORF", "DCA",
                 "IAD", "BWI", "BNA", "SDF", "AUS", "DFW", "IAH", "PHX", "LAS", "LAX",
-                "SFO", "SEA", "SAN", "SLC", "MSY"]
+                "SFO", "SEA", "SAN", "SLC", "MSY",
+                "CHS", "SAV", "MYR", "GSP", "CAE", "JAX", "DAY", "OMA", "MEM", "BHM",
+                "TYS", "SAT", "PDX", "SJC", "SNA", "SMF", "BGR", "ITH", "MDT", "ABE"]
 BEYOND_SOUTH = ["TPA", "JAX", "RSW", "SRQ", "EYW", "MCO", "PNS", "TLH", "SAV", "CHS",
-                "MSY", "IAH", "HOU", "DFW", "AUS", "ATL", "BNA", "SJU", "STT", "STX"]
+                "MSY", "IAH", "HOU", "DFW", "AUS", "ATL", "BNA", "SJU", "STT", "STX", "CLT"]
 INTL_NORTH = ["YYZ", "YUL", "YOW", "YHZ", "YQB"]
 INTL_SOUTH = ["NAS", "CUN", "MBJ", "SDQ", "PUJ", "GCM", "AUA", "CUR", "SXM", "BGI",
-              "PTY", "SJO", "BOG", "MDE", "GUA", "SAL", "LIM", "HAV", "PLS", "UVF"]
+              "PTY", "SJO", "BOG", "MDE", "GUA", "SAL", "LIM", "HAV", "PLS", "UVF", "GRU"]
 INTERNATIONAL = set(INTL_NORTH + INTL_SOUTH)
 # US territories fly as domestic (no passport), so they are never "international" here.
 US_TERRITORIES = {"SJU", "BQN", "PSE", "STT", "STX", "GUM", "SPN"}
