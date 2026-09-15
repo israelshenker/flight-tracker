@@ -576,8 +576,10 @@ function compareHtml(watches) {
     rows.set(`${w.origin}-${w.dest}`, r);
   }
   if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
-  const tables = [["Heading north", [...rows].filter(([k]) => NORTH_AIRPORTS.has(k.split("-")[1]))],
-                  ["Heading south and elsewhere", [...rows].filter(([k]) => !NORTH_AIRPORTS.has(k.split("-")[1]))]];
+  const fromFL = k => FLORIDA_AIRPORTS.has(k.split("-")[0]), toFL = k => FLORIDA_AIRPORTS.has(k.split("-")[1]);
+  const tables = [["From Florida", [...rows].filter(([k]) => fromFL(k))],
+                  ["To Florida", [...rows].filter(([k]) => !fromFL(k) && toFL(k))],
+                  ["Elsewhere", [...rows].filter(([k]) => !fromFL(k) && !toFL(k))]];
   let out = `<p class="small muted" style="margin:10px 0 0">Cheapest nonstop of the versions you track, per route and date. Green: the route's cheapest date. Purple: its cheapest skiplagged fare. Tap a date to sort by it; tap a fare to open that route.</p>
     <div class="row" style="align-items:center;margin:10px 0 0"><span class="small muted">Sort by</span><div class="seg">
       <label><input type="radio" name="sortby" value="nonstop"${sortBest ? "" : " checked"}>Nonstop</label>
@@ -610,7 +612,8 @@ function compareHtml(watches) {
   }
   return out;
 }
-const NORTH_AIRPORTS = new Set(["JFK", "LGA", "EWR", "HPN", "ACY", "PHL", "TTN", "SWF", "ISP", "BOS"]);
+const FLORIDA_AIRPORTS = new Set(["FLL", "DJT", "PBI", "MIA", "MCO", "SFB", "MLB", "RSW", "APF", "TPA", "JAX", "SRQ", "PIE", "PGD",
+  "EYW", "MTH", "PNS", "VPS", "ECP", "TLH", "GNV", "DAB", "LAL", "OCF", "BOW"]);
 const selected = new Set();  // route keys ticked in "Select routes" mode
 const openHistory = new Set();  // keep opened "Price history" sections open across refreshes
 // Days and route cards start collapsed; this browser remembers which ones were opened.
