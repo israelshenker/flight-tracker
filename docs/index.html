@@ -1,0 +1,1410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Flight Fares</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Flight Fares">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#121214" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1c1c1e;--muted:#6b6b70;--line:#e4e2dc;--up:#b42318;--down:#067647;--accent:#2754c5;--accent-ink:#fff;--soft:#eef2fc;--warn-bg:#fff6e5;--warn-ink:#8a4b00}
+@media (prefers-color-scheme:dark){:root{--bg:#121214;--card:#1c1c1f;--ink:#f2f2f3;--muted:#9a9aa1;--line:#2c2c31;--up:#f97066;--down:#47cd89;--accent:#8ea8ff;--accent-ink:#10131c;--soft:#23283a;--warn-bg:#3a2a10;--warn-ink:#ffcf85}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding-block:20px 60px;padding-inline:16px}
+main{max-width:780px;margin:0 auto}
+h1{font-size:26px;margin:0;letter-spacing:-.01em}
+h2{font-size:17px;margin:0 0 10px}
+a{color:var(--accent)}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 14px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.link{border:0;background:none;color:var(--accent);padding:0}
+button.stop{font-size:13px;padding:3px 10px;color:var(--muted)}
+button.stop:hover{color:var(--up);border-color:var(--up)}
+button:disabled{opacity:.5;cursor:default}
+.status{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--down);flex:none}
+.dot.busy{background:var(--accent);animation:pulse 1.2s infinite}
+.dot.bad{background:var(--up)}
+@keyframes pulse{50%{opacity:.3}}
+.warn{background:var(--warn-bg);color:var(--warn-ink);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:12px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+input[type=date],input[type=number],input[type=password],input[type=text]{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);max-width:100%}
+input[type=number]{width:100px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
+.seg label{padding:6px 12px;cursor:pointer;font-size:14px}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){background:var(--accent);color:var(--accent-ink)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 12px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:13px;cursor:pointer;user-select:none}
+.chip input{position:absolute;opacity:0;pointer-events:none}
+.chip:has(input:checked){background:var(--soft);border-color:var(--accent);color:var(--accent)}
+.chip small{color:var(--muted)}
+.group{margin:22px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.group h3{margin:0;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+.card.none{padding:10px 16px}
+.top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.route{font-size:17px;font-weight:650}
+.arrow{color:var(--muted);font-weight:400}
+.right{text-align:right}
+.price{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.mid{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:8px}
+.spark{color:var(--accent)}
+.price.up{color:var(--up)}
+.price.down{color:var(--down)}
+.badge{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px}
+.badge.up{color:var(--up);background:color-mix(in srgb,var(--up) 12%,transparent)}
+.badge.down{color:var(--down);background:color-mix(in srgb,var(--down) 12%,transparent)}
+details{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+summary{cursor:pointer;color:var(--accent);font-size:14px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;margin-top:6px;font-size:14px}
+th,td{text-align:left;padding:5px 4px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:500;font-size:12px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+table.airlines{margin-top:10px}
+table.airlines td{padding:3px 4px}
+.nonelist{display:flex;flex-wrap:wrap;gap:6px}
+.nonechip{display:inline-flex;gap:2px;align-items:center;border:1px dashed var(--line);border-radius:999px;padding:2px 4px 2px 10px;font-size:13px;color:var(--muted)}
+.nonechip button{border:0;padding:0 6px;background:none;color:var(--muted);font-size:16px;line-height:1}
+.nonechip button:hover{color:var(--up)}
+ol{padding-left:20px;margin:8px 0}
+ol li{margin-bottom:6px}
+.msg{font-size:14px;display:block;margin-top:8px}
+.msg:empty{display:none}
+.msg.bad{color:var(--up)}
+.msg.good{color:var(--down)}
+.empty{text-align:center;padding:30px 10px}
+table.grid th,table.grid td{white-space:nowrap}
+table.grid tbody th{text-align:left;font-weight:600}
+table.grid td a{color:var(--ink);text-decoration:none;font-weight:600}
+table.grid td a.up{color:var(--up)}
+table.grid td a.down{color:var(--down)}
+table.grid td.best{background:color-mix(in srgb,var(--down) 13%,transparent)}
+table.grid td.best a{text-decoration:underline;text-decoration-color:var(--down);text-underline-offset:3px}
+.gsk{display:block;font-size:11px;font-weight:600;color:#a21caf}
+@media (prefers-color-scheme:dark){.gsk{color:#f0abfc}}
+.selbar{position:sticky;bottom:0;z-index:5;background:var(--card);border:1px solid var(--accent);border-radius:14px;padding:10px 14px;margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;box-shadow:0 -4px 16px rgba(0,0,0,.12)}
+.selbar b{margin-right:6px}
+input.sel{width:16px;height:16px;margin:0 6px 0 0;flex:none;cursor:pointer;accent-color:var(--accent)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:flex-end;margin:4px 0 0}
+.toolbar select{font-size:13px;padding:3px 6px}
+button.fold{border:0;background:none;color:var(--muted);padding:0 6px 0 0;font-size:14px;line-height:1;cursor:pointer}
+.card.compact{padding:9px 16px}
+.card.compact .top{align-items:center}
+.card.compact .route{font-size:15px}
+.card.compact .price{font-size:18px}
+.card.compact .tags{display:inline-flex;margin:0 0 0 6px;vertical-align:middle}
+.daysum,.cline{display:flex;align-items:center;gap:10px;min-width:0}
+.skip{font-size:12px;font-weight:600;border-radius:999px;padding:1px 8px;background:color-mix(in srgb,#c026d3 14%,transparent);color:#a21caf;flex:none}
+@media (prefers-color-scheme:dark){.skip{color:#f0abfc}}
+.skiprow{margin-top:10px;font-size:14px;line-height:1.6}
+.skip.ow{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+.card.flash{outline:2px solid var(--accent);outline-offset:2px}
+.daysum>*,.cline>*{white-space:nowrap}
+.oneline{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+.cline .route,.cline .price,.daysum .price,.cline .fold{flex:none}
+.card.compact{overflow:hidden}
+.cline .rest{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+.cline .rest .tag{margin-right:4px}
+@media (max-width:560px){.cline .rest .tag{display:none}.daysum .lbl{display:none}}
+select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);max-width:100%}
+.inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:var(--ink);font-size:14px}
+.inline label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.tag{font-size:12px;border-radius:999px;padding:1px 8px;background:var(--soft);color:var(--accent)}
+.tag.hit{background:color-mix(in srgb,var(--down) 15%,transparent);color:var(--down);font-weight:600}
+.gf{font-size:13px;white-space:nowrap}
+td.times{color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Flight Fares</h1>
+      <div class="muted small">Cheapest nonstop fares on the routes you track</div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="btnAdd">+ Add flights</button>
+      <button id="btnCheck">Check now</button>
+      <button id="btnSettings">Settings</button>
+    </div>
+  </header>
+
+  <div class="status" id="status"><span class="dot busy"></span><span>Loading…</span></div>
+  <div id="warnings"></div>
+
+  <section class="panel" id="unlockPanel" hidden>
+    <h2>Enter the passphrase</h2>
+    <p class="small muted" style="margin-top:0">The fares on this page are encrypted. Enter the passphrase once on this browser to see them. It stays on this device only.</p>
+    <div class="row" style="margin-bottom:0">
+      <label class="f" style="flex:1;min-width:200px" for="passInput">Passphrase <input type="password" id="passInput" autocomplete="current-password"></label>
+      <button class="primary" id="btnUnlock">Unlock</button>
+    </div>
+    <span class="msg" id="unlockMsg"></span>
+  </section>
+
+  <section class="panel" id="connectPanel" hidden>
+    <h2>Connect this browser to make changes</h2>
+    <p class="small muted" style="margin-top:0">Anyone with the link can view this page. To add or stop flights, this browser needs a GitHub access key. You do this once per browser (computer or phone), and the key is kept only in that browser.</p>
+    <ol class="small">
+      <li>Open <a id="tokenLink" target="_blank" rel="noopener">GitHub's new access key page</a>, signed in as <b>israelshenker</b>.</li>
+      <li>Under <b>Repository access</b>, choose <b>Only select repositories</b> and pick <b>flight-tracker</b>.</li>
+      <li>Under <b>Permissions</b>, make sure <b>Contents</b> and <b>Actions</b> are both <b>Read and write</b>.</li>
+      <li>Click <b>Generate token</b>, copy it, and paste it below.</li>
+    </ol>
+    <div class="row" style="margin-bottom:0">
+      <label class="f" style="flex:1;min-width:200px">Access key <input type="password" id="tokenInput" autocomplete="off" placeholder="github_pat_…"></label>
+      <button class="primary" id="btnSaveToken">Connect</button>
+      <button id="btnCancelToken">Cancel</button>
+    </div>
+    <span class="msg" id="tokenMsg"></span>
+  </section>
+
+  <section class="panel" id="addPanel" hidden>
+    <h2>Add flights</h2>
+    <div class="row">
+      <div class="seg">
+        <label><input type="radio" name="trip" value="one_way" checked>One-way</label>
+        <label><input type="radio" name="trip" value="round_trip">Round trip</label>
+      </div>
+      <div class="seg">
+        <label><input type="radio" name="dir" value="FL_TO_NY" checked>Side 1 → Side 2</label>
+        <label><input type="radio" name="dir" value="NY_TO_FL">Side 2 → Side 1</label>
+        <label><input type="radio" name="dir" value="BOTH">Both ways</label>
+      </div>
+    </div>
+    <div class="small muted"><b>Side 1</b> · South Florida, plus any airports you add</div>
+    <div class="chips" id="flChips"></div>
+    <div class="inline small" style="margin:-4px 0 12px"><input type="text" id="flCustom" placeholder="Other airport codes, e.g. TPA, JAX" maxlength="40"><button id="flAddCode">Add</button></div>
+    <div class="small muted"><b>Side 2</b> · New York area, plus any airports you add</div>
+    <div class="chips" id="nyChips"></div>
+    <div class="inline small" style="margin:-4px 0 12px"><input type="text" id="nyCustom" placeholder="Other airport codes, e.g. BOS, DCA" maxlength="40"><button id="nyAddCode">Add</button></div>
+    <span class="msg" id="codeMsg"></span>
+    <div class="row">
+      <label class="f">Depart on / from <input type="date" id="depFrom"></label>
+      <label class="f">Depart to (optional) <input type="date" id="depTo"></label>
+    </div>
+    <div class="row" id="retRow" hidden>
+      <label class="f">Return on / from <input type="date" id="retFrom"></label>
+      <label class="f">Return to (optional) <input type="date" id="retTo"></label>
+    </div>
+    <p class="small muted" style="margin-top:0">Leave "to" empty for a single day. Every day in a range is tracked separately.</p>
+    <div class="row">
+      <div class="f"><span>Bags included in the fare</span>
+        <div class="inline">
+          <label><input type="checkbox" id="optCarry"> Carry-on</label>
+          <select id="optChecked"><option value="0">No checked bag</option><option value="1">1 checked bag</option><option value="2">2 checked bags</option></select>
+        </div></div>
+      <div class="f"><span id="timeLabel">Leaving between</span>
+        <div class="inline"><select id="optFrom"></select> and <select id="optTo"></select></div></div>
+    </div>
+    <p class="small muted" style="margin-top:0">With bags, fares include each airline's bag fees as Google lists them. Times are local to the departure airport.</p>
+    <div class="row">
+      <label class="f">Alert me when the fare drops below ($, optional) <input type="number" id="optBelow" min="1" step="1" placeholder="e.g. 120"></label>
+    </div>
+    <div class="row" style="align-items:center;margin-bottom:0">
+      <button class="primary" id="btnDoAdd">Add and check now</button>
+      <button id="btnCancelAdd">Cancel</button>
+      <span class="small" id="addCount"></span>
+    </div>
+    <span class="msg" id="addMsg"></span>
+  </section>
+
+  <section class="panel" id="bulkPanel" hidden>
+    <h2 id="bulkTitle"></h2>
+    <p class="small muted" id="bulkIntro" style="margin-top:0"></p>
+    <div class="row">
+      <label class="f">Carry-on <select id="bulkCarry"><option value="keep">Keep as is</option><option value="1">Include carry-on</option><option value="0">No carry-on</option></select></label>
+      <label class="f">Checked bags <select id="bulkChecked"><option value="keep">Keep as is</option><option value="0">None</option><option value="1">1 checked bag</option><option value="2">2 checked bags</option></select></label>
+      <label class="f">Leaving between <span class="inline"><select id="bulkFrom"></select> and <select id="bulkTo"></select></span></label>
+    </div>
+    <div class="row">
+      <label class="f">Price alert <select id="bulkAlertMode"><option value="keep">Keep as is</option><option value="set">Alert below $…</option><option value="remove">Remove alert</option></select></label>
+      <label class="f" id="bulkBelowWrap" hidden>Alert below ($) <input type="number" id="bulkBelow" min="1" step="1"></label>
+    </div>
+    <div class="row" id="bulkKeepRow"><label class="inline small"><input type="checkbox" id="bulkKeep" checked> Keep each route's price history when bags or times change</label></div>
+    <p class="small" id="bulkPreview"></p>
+    <div class="row" style="align-items:center;margin-bottom:0">
+      <button class="primary" id="btnBulkSave">Save</button>
+      <button id="btnBulkCancel">Cancel</button>
+    </div>
+    <span class="msg" id="bulkMsg"></span>
+  </section>
+
+  <section class="panel" id="editPanel" hidden>
+    <h2>Edit <span id="editTitle"></span></h2>
+    <div class="row">
+      <div class="f"><span>Bags included in the fare</span>
+        <div class="inline">
+          <label><input type="checkbox" id="editCarry"> Carry-on</label>
+          <select id="editChecked"><option value="0">No checked bag</option><option value="1">1 checked bag</option><option value="2">2 checked bags</option></select>
+        </div></div>
+      <div class="f"><span id="editTimeLabel">Leaving between</span>
+        <div class="inline"><select id="editFrom"></select> and <select id="editTo"></select></div></div>
+    </div>
+    <div class="row">
+      <label class="f">Alert me when the fare drops below ($, optional) <input type="number" id="editBelow" min="1" step="1" placeholder="none"></label>
+    </div>
+    <div class="row"><label class="inline small"><input type="checkbox" id="editAll"> <span id="editAllLabel"></span></label></div>
+    <div class="row"><label class="inline small"><input type="checkbox" id="editKeep" checked> Keep the price history when bags or times change</label></div>
+    <p class="small muted" style="margin-top:0">Kept history shows a "Bags/times changed" line where the new settings start; fares before it were for the old settings. Unticked, the route's history starts over. Either way it's checked again right away.</p>
+    <div class="row" style="align-items:center;margin-bottom:0">
+      <button class="primary" id="btnSaveEdit">Save</button>
+      <button id="btnCancelEdit">Cancel</button>
+    </div>
+    <span class="msg" id="editMsg"></span>
+  </section>
+
+  <section class="panel" id="settingsPanel" hidden>
+    <h2>Settings</h2>
+    <div class="row">
+      <label class="f">Adults <input type="number" id="setAdults" min="1" max="9"></label>
+      <label class="f">Alert on change of ($) <input type="number" id="setDollars" min="0" step="1"></label>
+      <label class="f">or (%) <input type="number" id="setPercent" min="0" step="0.5"></label>
+    </div>
+    <p class="small muted" style="margin-top:0">You get an email and push when a fare moves by either amount, up or down. 0 turns that one off. $1 means any change.</p>
+    <div class="row" style="flex-direction:column;align-items:flex-start;gap:6px">
+      <label class="inline"><input type="checkbox" id="setSkip"> Look for skiplagged fares (one-stop tickets hourly, two-stop every 3 hours)</label>
+      <label class="inline"><input type="checkbox" id="setNewLow"> Alert when a route hits its lowest fare since tracking began (even if the $ and % amounts are 0)</label>
+      <label class="inline"><input type="checkbox" id="setSkipIntl"> Include international tickets (to Canada or the Caribbean; passport needed)</label>
+    </div>
+    <p class="small muted" style="margin-top:0">A skiplagged fare is a ticket to a city past your destination that connects there, when it's cheaper to book it and get off at the connection. One-way, carry-on only; round trips and routes with checked bags are skipped. Airlines forbid it and may penalize repeat use.</p>
+    <div class="row" style="align-items:center;margin-bottom:0">
+      <button class="primary" id="btnSaveSettings">Save</button>
+      <button id="btnCancelSettings">Cancel</button>
+      <button class="link small" id="btnDisconnect" hidden>Disconnect this browser</button>
+      <button class="link small" id="btnForgetPass" hidden>Forget the passphrase on this browser</button>
+    </div>
+    <span class="msg" id="settingsMsg"></span>
+  </section>
+
+  <div id="list"></div>
+  <div class="selbar" id="selBar" hidden>
+    <b id="selCount"></b>
+    <button class="primary" data-bulk="change">Change options</button>
+    <button data-bulk="add">Also track with other options</button>
+    <button data-bulk="skipoff">Skiplagged off</button>
+    <button data-bulk="skipon">Skiplagged on</button>
+    <button data-bulk="stop">Stop tracking</button>
+    <button class="link" data-bulk="done" style="margin-left:auto">Done</button>
+  </div>
+</main>
+
+<script>
+const OWNER = "israelshenker", REPO = "flight-tracker", WORKFLOW = "check-prices.yml";
+const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
+const SOFT_LIMIT = 400;
+const AIRPORTS = {
+  fl: [["FLL","Fort Lauderdale"],["DJT","Palm Beach"],["MIA","Miami"],["MCO","Orlando"],["SFB","Sanford"],["RSW","Fort Myers"]],
+  ny: [["JFK","JFK"],["LGA","LaGuardia"],["EWR","Newark"],["HPN","White Plains"],["ACY","Atlantic City"],["PHL","Philadelphia"],["TTN","Trenton"],["SWF","Newburgh"]]
+};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let token = null;
+try { token = localStorage.getItem("ghToken"); } catch {}
+let config = {watches: []}, history = [], state = {}, latest = {}, lastRun = null, busy = false, loaded = false, lastLoad = 0;
+
+// ---------- GitHub API ----------
+async function gh(path, opts = {}) {
+  const headers = {Accept: "application/vnd.github+json", ...(opts.headers || {})};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(API + path, {cache: "no-store", ...opts, headers});
+  if (!res.ok && res.status !== 404) {
+    const err = new Error(`GitHub error ${res.status}`);
+    err.status = res.status;
+    try { err.detail = (await res.json()).message; } catch {}
+    throw err;
+  }
+  return res;
+}
+const b64encode = s => { const b = new TextEncoder().encode(s); let t = ""; for (const x of b) t += String.fromCharCode(x); return btoa(t); };
+const b64decode = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g, "")), c => c.charCodeAt(0)));
+
+// ---------- encrypted data (same format as vault.py) ----------
+let vaultInfo = null, vaultKey = null;
+const bytes64 = b => { let t = ""; for (const x of new Uint8Array(b)) t += String.fromCharCode(x); return btoa(t); };
+const unbytes64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+const isSealed = t => typeof t === "string" && t.trimStart().startsWith('{"encrypted"');
+async function deriveVaultKey(passphrase, info) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+  const k = await crypto.subtle.deriveKey({name: "PBKDF2", hash: "SHA-256", salt: unbytes64(info.salt), iterations: info.iterations},
+    base, {name: "AES-GCM", length: 256}, true, ["encrypt", "decrypt"]);
+  try {
+    const check = await crypto.subtle.decrypt({name: "AES-GCM", iv: unbytes64(info.check.iv)}, k, unbytes64(info.check.data));
+    if (new TextDecoder().decode(check) !== "flight-tracker") return null;
+  } catch { return null; }
+  return k;
+}
+async function openText(t) {
+  if (!isSealed(t)) return t;
+  if (!vaultKey) throw Object.assign(new Error("locked"), {locked: true});
+  const box = JSON.parse(t);
+  return new TextDecoder().decode(await crypto.subtle.decrypt({name: "AES-GCM", iv: unbytes64(box.iv)}, vaultKey, unbytes64(box.data)));
+}
+async function sealText(t) {
+  if (!vaultInfo) return t;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({name: "AES-GCM", iv}, vaultKey, new TextEncoder().encode(t));
+  return JSON.stringify({encrypted: "v1", iv: bytes64(iv), data: bytes64(data)});
+}
+async function restoreVaultKey() {
+  if (!vaultInfo || vaultKey) return;
+  try {
+    const saved = localStorage.getItem("vaultKey:" + vaultInfo.salt);
+    if (saved) vaultKey = await crypto.subtle.importKey("raw", unbytes64(saved), "AES-GCM", true, ["encrypt", "decrypt"]);
+  } catch {}
+}
+// Save descriptions show up in the public repo's history, so keep them generic when encrypted.
+const commitMessage = m => vaultInfo ? "Update from web page" : m;
+
+async function loadConfig() {
+  const res = await gh(`/contents/config.json?ref=main`);
+  if (res.status === 404) return {cfg: {watches: []}, sha: null};
+  const j = await res.json();
+  const cfg = JSON.parse(await openText(b64decode(j.content)));
+  if (!Array.isArray(cfg.watches)) cfg.watches = [];
+  return {cfg, sha: j.sha};
+}
+
+// Change config.json and commit it. Retries once if something else saved first.
+async function updateConfig(mutate, message) {
+  for (let attempt = 0; ; attempt++) {
+    const {cfg, sha} = await loadConfig();
+    mutate(cfg);
+    const today = todayEastern();
+    cfg.watches = cfg.watches.filter(w => w.depart >= today);
+    const body = {message: commitMessage(message), content: b64encode(await sealText(JSON.stringify(cfg, null, 2) + "\n")), branch: "main"};
+    if (sha) body.sha = sha;
+    try {
+      await gh("/contents/config.json", {method: "PUT", body: JSON.stringify(body), headers: {"Content-Type": "application/json"}});
+      config = cfg;
+      return;
+    } catch (e) {
+      if ((e.status === 409 || e.status === 422) && attempt < 2) continue;
+      throw e;
+    }
+  }
+}
+
+// ---------- data ----------
+function parseCSV(text) {
+  const rows = []; let row = [], field = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); rows.push(row); row = []; field = "";
+    } else field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+async function loadAll() {
+  // One API call for the newest commit, then the files from GitHub's file server, which
+  // doesn't count against the API limit (60 an hour for browsers that aren't connected).
+  const sha = (await (await gh("/commits/main", {headers: {Accept: "application/vnd.github.sha"}})).text()).trim();
+  const raw = async file => {
+    const res = await fetch(`https://raw.githubusercontent.com/${OWNER}/${REPO}/${sha}/${file}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw Object.assign(new Error(`GitHub error ${res.status}`), {status: res.status});
+    return res.text();
+  };
+  const vi = await raw("data/vault.json");
+  vaultInfo = vi ? JSON.parse(vi) : null;
+  await restoreVaultKey();
+  if (vaultInfo && !vaultKey) throw Object.assign(new Error("locked"), {locked: true});
+  const [cf, hist, st, lt] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json"]
+    .map(async f => { const t = await raw(f); return t == null ? null : openText(t); }));
+  config = cf ? JSON.parse(cf) : {watches: []};
+  if (!Array.isArray(config.watches)) config.watches = [];
+  latest = lt ? JSON.parse(lt) : {};
+  history = [];
+  if (hist) for (const r of parseCSV(hist).slice(1)) {
+    if (r.length < 7) continue;
+    history.push({at: r[0], o: r[1], d: r[2], dep: r[3], ret: r[4], price: r[5] ? Math.round(+r[5]) : null, airline: r[6], opts: r[7] || ""});
+  }
+  state = st ? JSON.parse(st) : {};
+  loaded = true;
+}
+
+// Same option code as tracker.py's options_code(): "c1" carry-on, "b2" checked bags, "t6-12" leaving 6 AM-noon.
+function optsCode(w) {
+  let c = "";
+  if (+w.carry_on) c += `c${+w.carry_on}`;
+  if (+w.checked) c += `b${+w.checked}`;
+  const from = +(w.time_from || 0), to = +(w.time_to ?? 24);
+  if (from > 0 || to < 24) c += `t${from}-${to}`;
+  if (w.flight) c += "f" + String(w.flight).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return c;
+}
+function parseOpts(code = "") {
+  const i = code.indexOf("f"), flight = i < 0 ? "" : code.slice(i + 1);
+  if (i >= 0) code = code.slice(0, i);
+  const c = /c(\d)/.exec(code), b = /b(\d)/.exec(code), t = /t(\d+)-(\d+)/.exec(code);
+  return {carry_on: c ? +c[1] : 0, checked: b ? +b[1] : 0, time_from: t ? +t[1] : 0, time_to: t ? +t[2] : 24, flight};
+}
+const flightLabel = f => f ? `${f.slice(0, 2)} ${f.slice(2)}` : "";
+const hourLabel = h => h === 0 || h === 24 ? "midnight" : h === 12 ? "noon" : `${h % 12} ${h < 12 ? "AM" : "PM"}`;
+const timeLabel = hhmm => { const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+function optTags(code) {
+  const o = parseOpts(code), t = [];
+  if (o.carry_on) t.push("Carry-on");
+  if (o.checked) t.push(`${o.checked} checked bag${o.checked > 1 ? "s" : ""}`);
+  if (o.time_from && o.time_to < 24) t.push(`Leaves ${hourLabel(o.time_from)}–${hourLabel(o.time_to)}`);
+  else if (o.time_to < 24) t.push(`Leaves before ${hourLabel(o.time_to)}`);
+  else if (o.time_from) t.push(`Leaves ${hourLabel(o.time_from)} or later`);
+  if (o.flight) t.push(`Flight ${flightLabel(o.flight)}`);
+  return t;
+}
+const keyOf = (o, d, dep, ret, opts) => `${o}-${d}|${dep}|${ret || ""}` + (opts ? `|${opts}` : "");
+const wKey = w => keyOf(w.origin, w.dest, w.depart, w.return, optsCode(w));
+
+// Link to this exact search on Google Flights (nonstop, same bags and time window).
+function googleLink(w) {
+  const o = parseOpts(optsCode(w));
+  return googleSearchLink({depart: w.depart, ret: w.return, from: w.origin, to: w.dest, stops: 0, via: [],
+    airlines: o.flight ? [o.flight.slice(0, 2)] : [], timeFrom: o.time_from, timeTo: o.time_to, carry: o.carry_on, checked: o.checked});
+}
+// The exact skiplagged ticket: origin to the ticket's final city, through the same connections, same airline.
+function ticketLink(w, h) {
+  const o = parseOpts(optsCode(w));
+  return googleSearchLink({depart: w.depart, from: w.origin, to: h.final, stops: h.stops || 1, via: [w.dest, ...(h.via || [])],
+    airlines: h.flights?.[0] ? [h.flights[0].slice(0, 2)] : [], timeFrom: +h.departs.slice(0, 2), timeTo: +h.departs.slice(0, 2) + 1, carry: o.carry_on, checked: 0});
+}
+function googleSearchLink(q) {
+  const o = {time_from: q.timeFrom || 0, time_to: q.timeTo ?? 24, carry_on: q.carry || 0, checked: q.checked || 0}, bytes = [];
+  const varint = (n, out) => { while (n > 127) { out.push((n & 127) | 128); n >>>= 7; } out.push(n); };
+  const field = (num, data, out) => { varint(num << 3 | 2, out); varint(data.length, out); out.push(...data); };
+  const int = (num, v, out) => { varint(num << 3, out); varint(v, out); };
+  const str = x => [...new TextEncoder().encode(x)];
+  const leg = (date, from, to, hours) => {
+    const d = [];
+    field(2, str(date), d);
+    const a = []; field(2, str(from), a); field(13, a, d);
+    const b = []; field(2, str(to), b); field(14, b, d);
+    int(5, hours ? q.stops : 0, d);
+    if (hours) for (const code of q.airlines) field(6, str(code), d);
+    if (hours) for (const code of q.via) field(15, str(code), d);
+    if (hours && o.time_from > 0) int(8, o.time_from, d);
+    if (hours && o.time_to < 24) int(9, o.time_to, d);
+    field(3, d, bytes);
+  };
+  leg(q.depart, q.from, q.to, true);
+  if (q.ret) leg(q.ret, q.to, q.from, false);
+  for (let i = 0; i < (config.adults || 1); i++) int(8, 1, bytes);
+  int(9, 1, bytes);
+  if (o.carry_on || o.checked) { const bg = []; if (o.carry_on) int(2, o.carry_on, bg); if (o.checked) int(3, o.checked, bg); field(13, bg, bytes); }
+  int(19, q.ret ? 1 : 2, bytes);
+  return `https://www.google.com/travel/flights/search?tfs=${encodeURIComponent(btoa(String.fromCharCode(...bytes)))}&hl=en&curr=USD`;
+}
+const todayEastern = () => new Intl.DateTimeFormat("en-CA", {timeZone: "America/New_York"}).format(new Date());
+function niceDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {weekday: "short", month: "short", day: "numeric"});
+}
+const when = s => new Date(s).toLocaleString("en-US", {timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+function ago(s) {
+  const m = Math.round((Date.now() - new Date(s)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} hr ago` : `${Math.round(h / 24)} days ago`;
+}
+
+function sparkline(prices) {
+  const v = prices.filter(p => p != null);
+  if (v.length < 2) return "";
+  const w = 110, h = 26, lo = Math.min(...v), hi = Math.max(...v), span = (hi - lo) || 1, step = w / (v.length - 1);
+  const pts = v.map((p, i) => `${(i * step).toFixed(1)},${(h - 3 - (p - lo) / span * (h - 6)).toFixed(1)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+}
+
+// ---------- rendering ----------
+function tracked() {
+  const today = todayEastern(), seen = new Set(), out = [];
+  for (const w of config.watches) {
+    const k = wKey(w);
+    if (w.depart < today || seen.has(k)) continue;
+    seen.add(k); out.push(w);
+  }
+  return out.sort((a, b) => (a.depart + (a.return || "")).localeCompare(b.depart + (b.return || "")) || a.origin.localeCompare(b.origin) || a.dest.localeCompare(b.dest) || optsCode(a).localeCompare(optsCode(b)));
+}
+
+let selectMode = false, compareMode = false;
+// "Compare dates": one row per route, one column per date, cheapest tracked nonstop in each cell.
+function compareHtml(watches) {
+  const rows = new Map();  // "O-D" -> {date: {price, key, airline, skip}}
+  for (const w of watches) {
+    if (w.return) continue;
+    const cur = latest[wKey(w)];
+    if (!cur || cur.price == null) continue;
+    const r = rows.get(`${w.origin}-${w.dest}`) || {};
+    const skip = skipFare(cur, w)?.price;
+    if (!r[w.depart] || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur)};
+    else if (skip && (!r[w.depart].skip || skip < r[w.depart].skip)) r[w.depart].skip = skip;
+    rows.set(`${w.origin}-${w.dest}`, r);
+  }
+  if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
+  const tables = [["Heading north", [...rows].filter(([k]) => NORTH_AIRPORTS.has(k.split("-")[1]))],
+                  ["Heading south and elsewhere", [...rows].filter(([k]) => !NORTH_AIRPORTS.has(k.split("-")[1]))]];
+  let out = `<p class="small muted" style="margin:10px 0 0">Cheapest nonstop of the versions you track, per route and date. The cheapest date for each route is highlighted; a skiplagged fare shows underneath when it's lower. Tap a fare to open that route.</p>`;
+  for (const [title, list] of tables) {
+    if (!list.length) continue;
+    const dates = [...new Set(list.flatMap(([, r]) => Object.keys(r)))].sort();
+    list.sort((a, b) => Math.min(...Object.values(a[1]).map(c => c.price)) - Math.min(...Object.values(b[1]).map(c => c.price)));
+    out += `<div class="group"><h3>${title}</h3></div><div class="card tablewrap"><table class="grid"><thead><tr><th>Route</th>${
+      dates.map(d => `<th class="num">${esc(niceDate(d))}</th>`).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
+        const min = Math.min(...Object.values(r).map(c => c.price)), many = Object.keys(r).length > 1;
+        return `<tr><th scope="row">${esc(route.replace("-", " → "))}</th>${dates.map(d => {
+          const c = r[d];
+          if (!c) return `<td class="num muted">—</td>`;
+          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${c.skip && c.skip < c.price ? `<span class="gsk">skip $${c.skip}</span>` : ""}</td>`;
+        }).join("")}</tr>`;
+      }).join("")}</tbody></table></div>`;
+  }
+  return out;
+}
+const NORTH_AIRPORTS = new Set(["JFK", "LGA", "EWR", "HPN", "ACY", "PHL", "TTN", "SWF", "ISP", "BOS"]);
+const selected = new Set();  // route keys ticked in "Select routes" mode
+const openHistory = new Set();  // keep opened "Price history" sections open across refreshes
+// Days and route cards start collapsed; this browser remembers which ones were opened.
+const folded = {openRoutes: new Set(), openDays: new Set()};
+try {
+  const saved = JSON.parse(localStorage.getItem("folded") || "{}");
+  for (const k of saved.openRoutes || []) folded.openRoutes.add(k);
+  for (const d of saved.openDays || []) folded.openDays.add(d);
+} catch {}
+function saveFolded() {
+  try { localStorage.setItem("folded", JSON.stringify({openRoutes: [...folded.openRoutes], openDays: [...folded.openDays]})); } catch {}
+}
+document.addEventListener("toggle", e => {
+  const k = e.target.dataset?.key;
+  if (k) e.target.open ? openHistory.add(k) : openHistory.delete(k);
+}, true);
+
+// A route's change log, including rows from its earlier bag/time settings (if kept),
+// with a marker row where each change of settings happened.
+function routeLog(w, log) {
+  const out = [];
+  let start = 0;
+  for (const h of w.history_from || []) {
+    const until = Date.parse(h.until);
+    for (const r of log[keyOf(w.origin, w.dest, w.depart, w.return, h.opts)] || []) {
+      const t = Date.parse(r.at);
+      if (t >= start && t < until) out.push(r);
+    }
+    out.push({at: h.until, marker: optTags(h.opts).join(", ") || "no bags, any time"});
+    start = until;
+  }
+  for (const r of log[wKey(w)] || []) if (Date.parse(r.at) >= start) out.push(r);
+  return out;
+}
+
+// "JetBlue 7:05 AM · United 7:08 AM, 8:10 AM" — every airline at the route's lowest fare, with its departure times.
+function cheapestFlights(cur) {
+  return Object.entries(cur.airlines || {}).filter(([, p]) => p === cur.price).sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([a]) => `${a}${(cur.times?.[a] || []).length ? " " + cur.times[a].map(timeLabel).join(", ") : ""}`).join(" · ");
+}
+// One-line version: the earliest flight at the lowest fare, "+N more", and the full list on hover.
+function cheapestShort(cur) {
+  const flights = [];
+  for (const [a, p] of Object.entries(cur.airlines || {}))
+    if (p === cur.price) for (const t of (cur.times?.[a]?.length ? cur.times[a] : [""])) flights.push([t, a]);
+  flights.sort((x, y) => (x[0] || "99").localeCompare(y[0] || "99"));
+  if (!flights.length) return "";
+  const [t, a] = flights[0], more = flights.length - 1;
+  return `<span class="oneline" title="${esc(cheapestFlights(cur))}"><b>${esc(a)}</b>${t ? " " + esc(timeLabel(t)) : ""}${more ? ` <span class="muted">+${more} more</span>` : ""}</span>`;
+}
+
+const CITY = {MHT:"Manchester",MDW:"Chicago Midway",CMH:"Columbus",CVG:"Cincinnati",IND:"Indianapolis",GRR:"Grand Rapids",MKE:"Milwaukee",MSP:"Minneapolis",STL:"St. Louis",MCI:"Kansas City",DEN:"Denver",GSO:"Greensboro",RIC:"Richmond",ORF:"Norfolk",IAD:"Washington Dulles",BWI:"Baltimore",BNA:"Nashville",SDF:"Louisville",AUS:"Austin",PHX:"Phoenix",LAS:"Las Vegas",LAX:"Los Angeles",SFO:"San Francisco",SEA:"Seattle",SAN:"San Diego",SLC:"Salt Lake City",SRQ:"Sarasota",PNS:"Pensacola",TLH:"Tallahassee",CHS:"Charleston",HOU:"Houston Hobby",STX:"St. Croix",YHZ:"Halifax",YQB:"Quebec City",AUA:"Aruba",CUR:"Curacao",SXM:"St. Maarten",BGI:"Barbados",PTY:"Panama City",SJO:"San Jose, Costa Rica",BOG:"Bogota",MDE:"Medellin",GUA:"Guatemala City",SAL:"San Salvador",LIM:"Lima",HAV:"Havana",PLS:"Providenciales",UVF:"St. Lucia",BOS:"Boston",BUF:"Buffalo",ROC:"Rochester",SYR:"Syracuse",ALB:"Albany",BTV:"Burlington",PWM:"Portland, ME",BDL:"Hartford",PVD:"Providence",PIT:"Pittsburgh",CLE:"Cleveland",DTW:"Detroit",ORD:"Chicago",RDU:"Raleigh",CLT:"Charlotte",DCA:"Washington",TPA:"Tampa",JAX:"Jacksonville",RSW:"Fort Myers",SAV:"Savannah",EYW:"Key West",MCO:"Orlando",MSY:"New Orleans",SJU:"San Juan",STT:"St. Thomas",IAH:"Houston",DFW:"Dallas",ATL:"Atlanta",YYZ:"Toronto",YUL:"Montreal",YOW:"Ottawa",NAS:"Nassau",CUN:"Cancun",MBJ:"Montego Bay",SDQ:"Santo Domingo",PUJ:"Punta Cana",GCM:"Grand Cayman"};
+const skiplaggedLink = w => `https://skiplagged.com/flights/${w.origin}/${w.dest}/${w.depart}${w.return ? "/" + w.return : ""}`;
+// The route's skiplagged fare, only when it beats the cheapest nonstop.
+// Fare color: red if it went up on the latest check, green if it went down, plain if unchanged.
+const moveClass = cur => cur?.prev_price == null || cur.price == null || cur.price === cur.prev_price ? "" : cur.price > cur.prev_price ? " up" : " down";
+const moveTitle = cur => cur?.prev_price == null || cur.price == null ? "" : cur.price === cur.prev_price ? "No change on the latest check" : `${cur.price > cur.prev_price ? "Up" : "Down"} $${Math.abs(cur.price - cur.prev_price)} on the latest check (was $${cur.prev_price})`;
+const oneWays = cur => cur?.one_ways && cur.price != null && cur.one_ways.total < cur.price ? cur.one_ways : null;
+const skipOff = dep => (config.skiplagged_off_dates || []).includes(dep);
+const skipFare = (cur, w) => !w.no_skiplagged && !skipOff(w.depart) && config.skiplagged !== false && cur?.hidden && (cur.price == null || cur.hidden.price < cur.price) ? cur.hidden : null;
+
+function render() {
+  const watches = tracked();
+  const log = {};  // key -> change-log rows, oldest first
+  for (const h of history) (log[keyOf(h.o, h.d, h.dep, h.ret, h.opts)] ||= []).push(h);
+
+  const warns = [];
+  if (watches.length > 400)
+    warns.push(`You're tracking <b>${watches.length}</b> route/dates. That's fine for Google's search, but the page may get slow; stopping routes under "No nonstop flights" helps.`);
+  const errs = state.last_run?.errors || [];
+  if (errs.length) warns.push(`${errs.length} Google search(es) failed on the last check: ${esc(errs.slice(0, 3).join("; "))}${errs.length > 3 ? "…" : ""}`);
+  $("warnings").innerHTML = warns.map(w => `<div class="warn">${w}</div>`).join("");
+
+  if (!watches.length) {
+    $("list").innerHTML = `<div class="panel empty"><h2>Nothing is being tracked</h2><p class="muted">Click <b>+ Add flights</b> to pick airports and dates.</p></div>`;
+    return;
+  }
+
+  const groups = new Map();
+  for (const w of watches) {
+    const g = w.depart + "|" + (w.return || "");
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(w);
+  }
+
+  // Page-wide toggle: collapse everything to one line per date, or open every date.
+  const anyOpen = [...groups.keys()].some(g => folded.openDays.has(g));
+  for (const k of [...selected]) if (!watches.some(w => wKey(w) === k)) selected.delete(k);
+  let html;
+  if (selectMode) {
+    const airports = [...new Set(watches.flatMap(w => [w.origin, w.dest]))].sort();
+    html = `<div class="toolbar"><span class="small muted">Tick routes, or pick a shortcut:</span>
+      <button class="link small" data-sel-all="1">Select all</button>
+      <select id="selAirport"><option value="">All routes with airport…</option>${airports.map(a => `<option>${a}</option>`).join("")}</select>
+      <select id="selKind"><option value="">Select by type…</option><option value="plain">No bags, any time</option><option value="bags">With bags</option><option value="times">With a time window</option><option value="alert">With a price alert</option><option value="none">No nonstop found</option><option value="skip">Has a cheaper skiplagged fare</option></select>
+      <button class="link small" data-sel-clear="1">Clear</button></div>`;
+  } else {
+    html = `<div class="toolbar"><button class="link small" data-compare="1">${compareMode ? "Back to the list" : "Compare dates"}</button><button class="link small" data-select-mode="1">Select routes</button><button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button></div>`;
+  }
+  for (const [g, ws] of groups) {
+    const [dep, ret] = g.split("|");
+    const title = niceDate(dep) + (ret ? `, returning ${niceDate(ret)}` : "");
+    const priced = [], none = [], pending = [];
+    for (const w of ws) {
+      const cur = latest[wKey(w)];
+      if (!cur) pending.push(w);
+      else if (cur.price == null) none.push(w);
+      else priced.push({w, cur});
+    }
+    priced.sort((a, b) => a.cur.price - b.cur.price || wKey(a.w).localeCompare(wKey(b.w)));
+    const dayFolded = !selectMode && !folded.openDays.has(g);
+    const dayKeys = ws.map(wKey), daySel = dayKeys.filter(k => selected.has(k)).length;
+    const allRoutesFolded = priced.length && priced.every(({w}) => !folded.openRoutes.has(wKey(w)));
+    html += `<div class="group"><h3>${selectMode
+      ? `<input type="checkbox" class="sel" data-sel-day="${esc(g)}" aria-label="Select all routes on ${esc(title)}"${daySel === dayKeys.length ? " checked" : ""}${daySel && daySel < dayKeys.length ? ' data-partial="1"' : ""}>`
+      : `<button class="fold" data-fold-day="${esc(g)}" aria-expanded="${!dayFolded}" title="${dayFolded ? "Show" : "Hide"} this date's routes">${dayFolded ? "▸" : "▾"}</button>`}${esc(title)} <span class="muted small">· ${ws.length} route${ws.length > 1 ? "s" : ""}, cheapest first</span></h3>
+      <span style="display:flex;gap:12px;flex-wrap:wrap">${!dayFolded && priced.length > 1 ? `<button class="link small" data-fold-all="${esc(g)}">${allRoutesFolded ? "Expand" : "Collapse"} all routes</button>` : ""}${g.endsWith("|") && config.skiplagged !== false ? `<button class="link small" data-skip-date="${esc(g.split("|")[0])}" title="${skipOff(g.split("|")[0]) ? "Start looking for skiplagged fares on this date" : "Stop looking for skiplagged fares on this date, e.g. if you need a checked bag"}">Skiplagged: ${skipOff(g.split("|")[0]) ? "off" : "on"}</button>` : ""}<button class="link small" data-stop-group="${esc(g)}">Stop all for this date</button></span></div>`;
+    if (dayFolded) {
+      const best = priced[0];
+      html += `<div class="card compact"><div class="daysum">${best
+        ? `<span><span class="lbl">Lowest </span><b class="price${moveClass(best.cur)}" style="font-size:18px" title="${esc(moveTitle(best.cur))}">$${best.cur.price}</b></span><b>${esc(best.w.origin)} → ${esc(best.w.dest)}</b>${cheapestShort(best.cur)}${(() => {
+          const sk = ws.map(w => ({w, h: skipFare(latest[wKey(w)], w)})).filter(x => x.h).sort((a, b) => a.h.price - b.h.price)[0];
+          return sk && sk.h.price < best.cur.price ? `<span class="skip" title="Skiplagged: ${esc(sk.w.origin)} → ${esc(sk.w.dest)}, ${esc(sk.h.airline)}, ticket to ${esc(CITY[sk.h.final] || sk.h.final)}">skiplagged $${sk.h.price}</span>` : "";
+        })()}`
+        : `<span class="muted small oneline">No fares yet</span>`}
+        <button class="link small" data-fold-day="${esc(g)}" style="margin-left:auto">${ws.length} route${ws.length > 1 ? "s" : ""} ▸</button></div></div>`;
+      continue;
+    }
+
+    for (const {w, cur} of priced) {
+      const k = wKey(w);
+      if (selectMode || !folded.openRoutes.has(k)) {
+        const target = targetFor(w);
+        const tags = [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(w.no_skiplagged ? ["No skiplagged"] : [])]
+          .map(t => `<span class="tag${t.startsWith("Alert") && cur.price < target ? " hit" : ""}">${esc(t)}</span>`).join("");
+
+        html += `<article class="card compact"><div class="cline">
+          ${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(k)}" aria-label="Select ${esc(w.origin)} to ${esc(w.dest)}"${selected.has(k) ? " checked" : ""}>` : `<button class="fold" data-fold="${esc(k)}" aria-expanded="false" title="Show details">▸</button>`}<span class="route">${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</span>
+          <span class="rest" title="${esc(cheapestFlights(cur))}">${tags}${cheapestShort(cur).replace('class="oneline"', 'class="flights"')}</span>${skipFare(cur, w) ? `<span class="skip">skiplagged $${skipFare(cur, w).price}</span>` : ""}${oneWays(cur) ? `<span class="skip ow">2 one-ways $${oneWays(cur).total}</span>` : ""}<span class="price${moveClass(cur)}" title="${esc(moveTitle(cur))}">$${cur.price}</span>
+        </div></article>`;
+        continue;
+      }
+      // Replay the change log: each airline's fare over time, and the route's lowest fare over time.
+      const fares = {}, lows = [], changes = [];
+      let lastAt = null;
+      for (const r of routeLog(w, log)) {
+        if (r.marker) { for (const a in fares) delete fares[a]; changes.push(r); continue; }
+        if (r.airline) fares[r.airline] = r.price; else for (const a in fares) delete fares[a];
+        if (r.at !== lastAt) { lows.push(null); lastAt = r.at; }
+        const vals = Object.values(fares);
+        lows[lows.length - 1] = vals.length ? Math.min(...vals) : null;
+        changes.push(r);
+      }
+      const seen = lows.filter(p => p != null);
+      const first = seen[0];
+      const badge = first != null && cur.price !== first
+        ? `<span class="badge ${cur.price > first ? "up" : "down"}">${cur.price > first ? "▲" : "▼"} $${Math.abs(cur.price - first)} since first check</span>` : "";
+      const lowHigh = seen.length ? `Low $${Math.min(...seen, cur.price)} · High $${Math.max(...seen, cur.price)}` : "";
+      const airlines = Object.entries(cur.airlines || {}).sort((a, b) => a[1] - b[1])
+        .map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td><td class="times">${esc((cur.times?.[a] || []).map(timeLabel).join(", "))}</td></tr>`).join("");
+      const target = targetFor(w);
+      const tags = [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(w.no_skiplagged ? ["No skiplagged"] : [])]
+        .map(t => `<span class="tag${t.startsWith("Alert") && cur.price < target ? " hit" : ""}">${esc(t)}</span>`).join("");
+      const rows = changes.slice().reverse().map(r => r.marker
+        ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed${r.marker ? ` (was: ${esc(r.marker)})` : ""}</i></td></tr>`
+        : `<tr><td>${esc(when(r.at))}</td><td>${r.airline ? esc(r.airline) : "—"}</td><td class="num">${r.price == null ? "no nonstops" : "$" + r.price}</td></tr>`).join("");
+      html += `<article class="card">
+        <div class="top">
+          <div><div class="route"><button class="fold" data-fold="${esc(k)}" aria-expanded="true" title="Show just the lowest fare">▾</button>${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</div>
+            ${tags ? `<div class="tags">${tags}</div>` : ""}
+            <div class="muted small">checked ${esc(ago(cur.checked_at))} · <a class="gf" href="${googleLink(w)}" target="_blank" rel="noopener">Google Flights ↗</a> · <a class="gf" href="${skiplaggedLink(w)}" target="_blank" rel="noopener">Skiplagged ↗</a></div></div>
+          <div class="right"><div class="price${moveClass(cur)}" title="${esc(moveTitle(cur))}">$${cur.price}</div><div class="muted small">${esc(cur.airline)}</div></div>
+        </div>
+        ${(() => {
+          const ow = oneWays(cur);
+          if (!ow) return "";
+          return `<div class="skiprow"><span class="skip ow">Two one-ways</span> <b>$${ow.total}</b> <span class="muted">($${cur.price - ow.total} less than the round trip)</span> · out ${esc(ow.out.airline)} ${esc(flightLabel(ow.out.flight))} ${esc(timeLabel(ow.out.departs))} $${ow.out.price} · back ${esc(ow.back.airline)} ${esc(flightLabel(ow.back.flight))} ${esc(timeLabel(ow.back.departs))} $${ow.back.price}</div>`;
+        })()}
+        ${(() => {
+          const h = skipFare(cur, w);
+          if (!h) return "";
+          const city = CITY[h.final] ? `${CITY[h.final]} (${h.final})` : h.final;
+          return `<div class="skiprow"><span class="skip">Skiplagged</span> <b>$${h.price}</b>${cur.price ? ` <span class="muted">($${cur.price - h.price} less)</span>` : ""} · ${esc(h.airline)} ${esc(timeLabel(h.departs))} · book a ticket to <b>${esc(city)}</b>${h.stops === 2 && h.via?.length ? ` (it stops again in ${esc(CITY[h.via[0]] || h.via[0])})` : ""} and get off at ${esc(w.dest)}${h.international ? ' · <span style="color:var(--up)">international: passport needed</span>' : ""} · carry-on only${h.flights?.length ? ` · flights ${esc(h.flights.map(flightLabel).join(" + "))}` : ""} · <a href="${ticketLink(w, h)}" target="_blank" rel="noopener">see this ticket on Google Flights ↗</a>${h.international ? "" : ` · <a href="https://skiplagged.com/flights/${w.origin}/${w.dest}/${w.depart}" target="_blank" rel="noopener">Skiplagged ↗</a>`}${h.international ? '<div class="muted small">Skiplagged.com doesn\'t list international hidden-city tickets, so use the Google Flights link for this one.</div>' : ""}</div>`;
+        })()}
+        <div class="tablewrap"><table class="airlines"><thead><tr><th>Airline</th><th class="num">Lowest fare</th><th>Departs at that fare</th></tr></thead><tbody>${airlines}</tbody></table></div>
+        <div class="mid">${sparkline(lows)}<span class="muted small">${lowHigh}</span>${badge}
+          <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="stop" data-edit="${esc(k)}">Edit bags, times, alert</button><button class="stop" data-stop="${esc(k)}">Stop tracking</button></span></div>
+        ${cur.flights?.length && !parseOpts(optsCode(w)).flight ? `<details><summary>All ${cur.flights.length} nonstop flight${cur.flights.length > 1 ? "s" : ""}</summary><div class="tablewrap"><table>
+          <thead><tr><th>Departs</th><th>Flight</th><th class="num">Fare</th><th></th></tr></thead><tbody>${cur.flights.map(f => {
+            const tracked_ = tracked().some(x => x.origin === w.origin && x.dest === w.dest && x.depart === w.depart && (x.return || "") === (w.return || "") && parseOpts(optsCode(x)).flight === f.flight && !!x.carry_on === !!w.carry_on && +(x.checked || 0) === +(w.checked || 0));
+            return `<tr><td>${esc(timeLabel(f.departs))}</td><td>${esc(f.airline)} ${esc(flightLabel(f.flight))}</td><td class="num">$${f.price}</td><td style="text-align:right">${!f.flight ? "" : tracked_ ? '<span class="muted small">tracked</span>' : `<button class="stop" data-track-flight="${esc(k)}|${esc(f.flight)}">Track this flight</button>`}</td></tr>`;
+          }).join("")}</tbody></table></div>
+          <div class="muted small">Tracking a flight adds it as its own card with the same bags, its own fare history and alerts.</div></details>` : ""}
+        <details data-key="${esc(k)}"${openHistory.has(k) ? " open" : ""}><summary>Price history</summary><div class="tablewrap"><table>
+          <thead><tr><th>Changed (Eastern)</th><th>Airline</th><th class="num">New fare</th></tr></thead>
+          <tbody>${rows}</tbody></table></div>
+          <div class="muted small">Only changes are listed; the tracker checks every hour.</div></details>
+      </article>`;
+    }
+    const chipList = (list, label, stopAll) => list.length ? `<div class="card none"><div class="group" style="margin:0 0 6px"><span class="muted small">${label} (${list.length})</span>${
+      stopAll ? `<button class="link small" data-stop-none="${esc(g)}">Stop all ${list.length} with no nonstops</button>` : ""}</div><div class="nonelist">${
+      list.map(w => `<span class="nonechip">${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(wKey(w))}"${selected.has(wKey(w)) ? " checked" : ""}>` : ""}${esc(w.origin)} → ${esc(w.dest)}${optTags(optsCode(w)).length ? ` <small>(${esc(optTags(optsCode(w)).join(", "))})</small>` : ""} <a href="${googleLink(w)}" target="_blank" rel="noopener" title="Open on Google Flights">↗</a> <a href="${skiplaggedLink(w)}" target="_blank" rel="noopener" title="Open on Skiplagged">S↗</a><button title="Edit bags, times, alert" aria-label="Edit ${esc(w.origin)} to ${esc(w.dest)}" data-edit="${esc(wKey(w))}">✎</button><button title="Stop tracking" aria-label="Stop tracking ${esc(w.origin)} to ${esc(w.dest)}" data-stop="${esc(wKey(w))}">×</button></span>`).join("")}</div></div>` : "";
+    html += chipList(pending, "Waiting for first check");
+    html += chipList(none, "No nonstop flights found (checked once a day)", true);
+  }
+  if (compareMode && !selectMode) html = html.slice(0, html.indexOf("</div>") + 6) + compareHtml(watches);
+  $("list").innerHTML = html;
+  for (const box of document.querySelectorAll("[data-partial]")) box.indeterminate = true;
+  $("selBar").hidden = !selectMode;
+  if (selectMode) {
+    const dates = new Set([...selected].map(k => k.split("|")[1]));
+    $("selCount").textContent = selected.size ? `${selected.size} route${selected.size > 1 ? "s" : ""} on ${dates.size} date${dates.size > 1 ? "s" : ""}` : "Nothing selected";
+    for (const b of document.querySelectorAll("#selBar [data-bulk]")) if (b.dataset.bulk !== "done") b.disabled = !selected.size;
+  }
+}
+
+// ---------- run status ----------
+async function refreshRun() {
+  try {
+    const res = await gh(`/actions/workflows/${WORKFLOW}/runs?per_page=1`);
+    const run = (await res.json()).workflow_runs?.[0] || null;
+    const wasActive = lastRun && lastRun.status !== "completed";
+    if (run || !wasActive) lastRun = run;
+    if (wasActive && run?.status === "completed") { await loadAll(); render(); }
+  } catch {}
+  renderStatus();
+}
+
+function renderStatus() {
+  const lr = state.last_run;
+  let dot = "", text;
+  if (lastRun && lastRun.status !== "completed") {
+    dot = "busy";
+    text = `<b>Checking prices now…</b> <span class="muted small">Results show up here when it finishes.</span>`;
+  } else if (lr) {
+    if (lr.errors?.length && lr.errors.length >= (lr.searches || 1) / 2) dot = "bad";
+    const partial = lr.searched < lr.total ? ` (${lr.searched} of ${lr.total} route/dates; the rest go first next time)` : ` (${lr.total} route/dates)`;
+    text = `Last full check <b>${esc(ago(lr.at))}</b> <span class="muted small">· ${esc(when(lr.at))} Eastern · ${lr.searches ?? "?"} Google searches${partial} · repeats every hour</span>`;
+  } else {
+    text = "No checks yet.";
+  }
+  if (lastRun?.status === "completed" && lastRun.conclusion === "failure") {
+    dot = "bad"; text += ` <span class="small" style="color:var(--up)">The latest run failed.</span>`;
+  }
+  $("status").innerHTML = `<span class="dot ${dot}"></span><span>${text}</span><button class="link small" id="btnRefresh" style="margin-left:auto">Refresh</button>`;
+}
+
+// ---------- panels ----------
+function show(panel) {
+  for (const p of ["unlockPanel", "connectPanel", "addPanel", "settingsPanel", "editPanel", "bulkPanel"]) $(p).hidden = p !== panel;
+  if (panel) $(panel).scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+let afterConnect = null;
+function needToken(then) {
+  if (token) return true;
+  afterConnect = then;
+  show("connectPanel");
+  return false;
+}
+
+const tokenUrl = new URL("https://github.com/settings/personal-access-tokens/new");
+tokenUrl.search = new URLSearchParams({name: "Flight Fares page", description: "Lets the Flight Fares web page add and stop tracked flights", target_name: OWNER, expires_in: "366", contents: "write", actions: "write"});
+$("tokenLink").href = tokenUrl;
+
+$("btnSaveToken").onclick = async () => {
+  const t = $("tokenInput").value.trim();
+  if (!t) return;
+  $("tokenMsg").className = "msg"; $("tokenMsg").textContent = "Checking…";
+  try {
+    const res = await fetch(API, {cache: "no-store", headers: {Authorization: `Bearer ${t}`, Accept: "application/vnd.github+json"}});
+    const j = await res.json();
+    if (!res.ok) throw new Error("GitHub didn't accept that key. Copy it again and paste the whole thing.");
+    if (!j.permissions?.push) throw new Error("That key can't change flight-tracker. Check steps 2 and 3.");
+    token = t;
+    try { localStorage.setItem("ghToken", t); } catch {}
+    $("tokenInput").value = ""; $("tokenMsg").textContent = "";
+    $("btnDisconnect").hidden = false;
+    show(null);
+    if (afterConnect) { const f = afterConnect; afterConnect = null; f(); }
+  } catch (e) {
+    $("tokenMsg").className = "msg bad"; $("tokenMsg").textContent = e.message;
+  }
+};
+$("btnCancelToken").onclick = () => { afterConnect = null; show(null); };
+$("btnDisconnect").onclick = () => { token = null; try { localStorage.removeItem("ghToken"); } catch {} $("btnDisconnect").hidden = true; show(null); };
+$("btnDisconnect").hidden = !token;
+
+// ---------- add ----------
+const checkedVals = name => [...document.querySelectorAll(`input[name=${name}]:checked`)].map(i => i.value);
+let customCodes = {fl: [], ny: []};  // extra airports, saved in config.json as custom_airports
+function renderChips() {
+  for (const k of ["fl", "ny"]) {
+    const picked = new Set(checkedVals(k));
+    const presets = AIRPORTS[k].map(([c, n]) => `<label class="chip"><input type="checkbox" name="${k}" value="${c}"${picked.has(c) ? " checked" : ""}><b>${c}</b> <small>${n}</small></label>`);
+    const extra = customCodes[k].map(c => `<label class="chip"><input type="checkbox" name="${k}" value="${c}"${picked.has(c) ? " checked" : ""}><b>${c}</b> <button class="link small" data-remove-code="${k}:${c}" title="Remove from this list">×</button></label>`);
+    $(k + "Chips").innerHTML = [...presets, ...extra].join("");
+  }
+}
+function addCodes(k) {
+  const codes = $(k + "Custom").value.toUpperCase().split(/[\s,;]+/).filter(Boolean);
+  const bad = codes.filter(c => !/^[A-Z]{3}$/.test(c));
+  $("codeMsg").className = "msg bad";
+  $("codeMsg").textContent = bad.length ? `Airport codes are 3 letters, like TPA. Not added: ${bad.join(", ")}` : "";
+  const known = new Set([...AIRPORTS.fl, ...AIRPORTS.ny].map(a => a[0]).concat(customCodes.fl, customCodes.ny));
+  const good = codes.filter(c => /^[A-Z]{3}$/.test(c));
+  for (const c of good) if (!known.has(c)) { customCodes[k].push(c); known.add(c); }
+  renderChips();
+  for (const c of good) { const box = document.querySelector(`input[name=${k}][value=${c}]`); if (box) box.checked = true; }
+  $(k + "Custom").value = "";
+  updateAddCount();
+}
+for (const k of ["fl", "ny"]) {
+  $(k + "AddCode").onclick = () => addCodes(k);
+  $(k + "Custom").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addCodes(k); } });
+}
+$("addPanel").addEventListener("click", e => {
+  const b = e.target.closest("[data-remove-code]");
+  if (!b) return;
+  e.preventDefault();
+  const [k, c] = b.dataset.removeCode.split(":");
+  customCodes[k] = customCodes[k].filter(x => x !== c);
+  renderChips(); updateAddCount();
+});
+renderChips();
+
+function days(from, to) {
+  if (!from) return [];
+  if (!to || to < from) to = from;
+  const out = [];
+  for (let d = new Date(from + "T12:00:00Z"); d.toISOString().slice(0, 10) <= to && out.length < 366; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
+  return out;
+}
+function chosenOptions() {
+  const opts = {};
+  if ($("optCarry").checked) opts.carry_on = 1;
+  if (+$("optChecked").value) opts.checked = +$("optChecked").value;
+  let from = +$("optFrom").value, to = +$("optTo").value;
+  if (to <= from) to = 24;
+  if (from > 0 || to < 24) { opts.time_from = from; opts.time_to = to; }
+  return opts;
+}
+for (const id of ["optFrom", "editFrom"])
+  $(id).innerHTML = Array.from({length: 24}, (_, h) => `<option value="${h}">${h ? hourLabel(h) : "Earliest (any)"}</option>`).join("");
+for (const id of ["optTo", "editTo"])
+  $(id).innerHTML = Array.from({length: 24}, (_, i) => i + 1).map(h => `<option value="${h}"${h === 24 ? " selected" : ""}>${h === 24 ? "Latest (any)" : hourLabel(h)}</option>`).join("");
+
+// ---------- edit a tracked route ----------
+let editingKey = null;
+function openEdit(key) {
+  const w = tracked().find(x => wKey(x) === key);
+  if (!w) return;
+  editingKey = key;
+  const o = parseOpts(optsCode(w));
+  $("editTitle").textContent = `${w.origin} → ${w.dest}, ${niceDate(w.depart)}${w.return ? `, returning ${niceDate(w.return)}` : ""}`;
+  $("editCarry").checked = !!o.carry_on;
+  $("editChecked").value = String(o.checked);
+  $("editFrom").value = String(o.time_from);
+  $("editTo").value = String(o.time_to);
+  $("editBelow").value = targetFor(w) ?? "";
+  $("editTimeLabel").textContent = w.return ? "Outbound flight leaving between" : "Leaving between";
+  const sameDay = tracked().filter(x => x.depart === w.depart && (x.return || "") === (w.return || "")).length;
+  $("editAll").checked = false;
+  $("editAll").closest(".row").hidden = sameDay < 2;
+  $("editAllLabel").textContent = `Apply to all ${sameDay} routes on ${niceDate(w.depart)}${w.return ? ` returning ${niceDate(w.return)}` : ""}`;
+  $("editMsg").textContent = "";
+  show("editPanel");
+}
+$("btnCancelEdit").onclick = () => { editingKey = null; show(null); };
+$("btnSaveEdit").onclick = () => {
+  const key = editingKey, w = tracked().find(x => wKey(x) === key);
+  if (!w) { show(null); return; }
+  let from = +$("editFrom").value, to = +$("editTo").value;
+  if (to <= from) to = 24;
+  const carry = $("editCarry").checked ? 1 : 0, checked = +$("editChecked").value;
+  const below = +$("editBelow").value > 0 ? Math.round(+$("editBelow").value) : null;
+  const all = $("editAll").checked && !$("editAll").closest(".row").hidden;
+  const keep = $("editKeep").checked;
+  if (!needToken(() => { show("editPanel"); $("btnSaveEdit").click(); })) return;
+  const matches = x => all ? x.depart === w.depart && (x.return || "") === (w.return || "") : wKey(x) === key;
+  save(async () => {
+    await updateConfig(c => {
+      for (const x of c.watches) {
+        if (!matches(x)) continue;
+        const before = optsCode(x);
+        for (const f of ["carry_on", "checked", "time_from", "time_to", "alert_below"]) delete x[f];
+        if (carry) x.carry_on = carry;
+        if (checked) x.checked = checked;
+        if (from > 0 || to < 24) { x.time_from = from; x.time_to = to; }
+        if (below) x.alert_below = below;
+        if (optsCode(x) !== before) {
+          // history_from: earlier settings of this route, each used until a moment in time.
+          if (keep) x.history_from = [...(x.history_from || []), {opts: before, until: new Date().toISOString()}];
+          else delete x.history_from;
+        }
+      }
+      // Editing can make two entries identical; keep one.
+      const seen = new Set();
+      c.watches = c.watches.filter(x => { const k = wKey(x); if (seen.has(k)) return false; seen.add(k); return true; });
+    }, `Edit ${all ? "all routes on " + w.depart : w.origin + "-" + w.dest + " " + w.depart} from web page`);
+    editingKey = null;
+    show(null);
+  }, $("editMsg"));
+};
+
+function newWatches(includeTracked = false) {
+  const rt = checkedVals("trip")[0] === "round_trip", dir = checkedVals("dir")[0];
+  const fl = checkedVals("fl"), ny = checkedVals("ny"), pairs = [];
+  if (dir !== "NY_TO_FL") for (const o of fl) for (const d of ny) pairs.push([o, d]);
+  if (dir !== "FL_TO_NY") for (const o of ny) for (const d of fl) pairs.push([o, d]);
+  const deps = days($("depFrom").value, $("depTo").value);
+  const rets = rt ? days($("retFrom").value, $("retTo").value) : [""];
+  const today = todayEastern(), have = new Set(tracked().map(wKey)), out = [];
+  for (const [o, d] of pairs) for (const dep of deps) for (const ret of rets) {
+    const w = {origin: o, dest: d, depart: dep, return: ret, ...chosenOptions()};
+    if (+$("optBelow").value > 0) w.alert_below = Math.round(+$("optBelow").value);
+    if (o !== d && dep >= today && (!ret || ret >= dep) && (includeTracked || !have.has(wKey(w)))) out.push(w);
+  }
+  return out;
+}
+function updateAddCount() {
+  $("retRow").hidden = checkedVals("trip")[0] !== "round_trip";
+  $("timeLabel").textContent = $("retRow").hidden ? "Leaving between" : "Outbound flight leaving between";
+  const n = newWatches().length, total = tracked().length + n;
+  const already = +$("optBelow").value > 0 ? newWatches(true).length - n : 0;
+  $("addCount").innerHTML = n || already
+    ? [n ? `Adds <b>${n}</b> route/date${n > 1 ? "s" : ""} · ${total} total` : "", already ? `sets the price alert on ${already} already tracked` : ""].filter(Boolean).join(" · ")
+      + (total > SOFT_LIMIT ? ` <span style="color:var(--up)">· a lot for one page</span>` : "")
+    : `<span class="muted">Pick an airport on each side and a date</span>`;
+}
+$("addPanel").addEventListener("input", updateAddCount);
+$("addPanel").addEventListener("change", updateAddCount);
+$("btnAdd").onclick = () => { customCodes = {fl: [...(config.custom_airports?.fl || [])], ny: [...(config.custom_airports?.ny || [])]}; renderChips(); for (const id of ["depFrom", "depTo", "retFrom", "retTo"]) $(id).min = todayEastern(); $("addMsg").textContent = ""; show("addPanel"); updateAddCount(); };
+$("btnCancelAdd").onclick = () => show(null);
+$("btnDoAdd").onclick = () => {
+  const add = newWatches(), all = newWatches(true);
+  const below = +$("optBelow").value > 0 ? Math.round(+$("optBelow").value) : null;
+  // Routes already tracked just get the new price alert, if one was entered.
+  const updates = below ? all.filter(w => !add.some(a => wKey(a) === wKey(w))) : [];
+  if (!add.length && !updates.length) { $("addMsg").className = "msg bad"; $("addMsg").textContent = "Pick at least one airport on each side and a departure date (and a return date for round trips)."; return; }
+  if (!needToken(() => { show("addPanel"); $("btnDoAdd").click(); })) return;
+  save(async () => {
+    await updateConfig(c => {
+      const have = new Set(c.watches.map(wKey));
+      for (const w of add) if (!have.has(wKey(w))) c.watches.push(w);
+      const upd = new Set(updates.map(wKey));
+      for (const w of c.watches) if (upd.has(wKey(w))) w.alert_below = below;
+      c.custom_airports = customCodes;
+    }, add.length ? `Add ${add.length} flight(s) from web page` : `Set price alert on ${updates.length} flight(s) from web page`);
+    for (const i of document.querySelectorAll("#addPanel input[type=checkbox]")) i.checked = false;
+    $("optBelow").value = "";
+    show(null);
+  }, $("addMsg"));
+};
+
+// ---------- price alert per route ----------
+function targetFor(w) {
+  const k = wKey(w);
+  const found = config.watches.find(x => wKey(x) === k && x.alert_below);
+  return found ? +found.alert_below : null;
+}
+function setTarget(key) {
+  const w = tracked().find(x => wKey(x) === key);
+  if (!w) return;
+  const cur = targetFor(w);
+  const answer = prompt(`Alert me when ${w.origin} → ${w.dest} on ${niceDate(w.depart)} drops below this fare ($).\nLeave empty to remove the alert.`, cur ?? "");
+  if (answer === null) return;
+  const value = answer.trim() === "" ? null : Math.round(+answer.replace(/[$,\s]/g, ""));
+  if (value !== null && !(value > 0)) { alert("Enter a dollar amount, like 120."); return; }
+  if (!needToken(() => setTarget(key))) return;
+  save(() => updateConfig(c => {
+    for (const x of c.watches) if (wKey(x) === key) { if (value) x.alert_below = value; else delete x.alert_below; }
+  }, value ? `Alert below $${value} for ${w.origin}-${w.dest} ${w.depart}` : `Remove price alert for ${w.origin}-${w.dest} ${w.depart}`));
+}
+
+// ---------- track one flight ----------
+function trackFlight(spec) {
+  const i = spec.lastIndexOf("|"), key = spec.slice(0, i), flight = spec.slice(i + 1);
+  const w = tracked().find(x => wKey(x) === key);
+  if (!w) return;
+  if (!needToken(() => trackFlight(spec))) return;
+  const add = {origin: w.origin, dest: w.dest, depart: w.depart, return: w.return || "", flight};
+  if (w.carry_on) add.carry_on = w.carry_on;
+  if (w.checked) add.checked = w.checked;
+  if (w.no_skiplagged) add.no_skiplagged = true;
+  save(() => updateConfig(c => {
+    if (!c.watches.some(x => wKey(x) === wKey(add))) c.watches.push(add);
+  }, `Track flight ${flightLabel(flight)} ${w.origin}-${w.dest} ${w.depart} from web page`));
+}
+
+// ---------- skiplagged on/off per date ----------
+function toggleSkipDate(dep) {
+  if (!needToken(() => toggleSkipDate(dep))) return;
+  const turnOff = !skipOff(dep);
+  save(() => updateConfig(c => {
+    const off = new Set(c.skiplagged_off_dates || []);
+    turnOff ? off.add(dep) : off.delete(dep);
+    c.skiplagged_off_dates = [...off].filter(d => d >= todayEastern()).sort();
+  }, `Skiplagged ${turnOff ? "off" : "on"} for ${dep} from web page`));
+}
+
+// ---------- select routes ----------
+for (const [f, t] of [["bulkFrom", "bulkTo"]]) {
+  $(f).innerHTML = `<option value="keep">Keep as is</option>` + Array.from({length: 24}, (_, h) => `<option value="${h}">${h ? hourLabel(h) : "Earliest (any)"}</option>`).join("");
+  $(t).innerHTML = `<option value="keep">Keep as is</option>` + Array.from({length: 24}, (_, i) => i + 1).map(h => `<option value="${h}">${h === 24 ? "Latest (any)" : hourLabel(h)}</option>`).join("");
+}
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.dataset?.sel) { t.checked ? selected.add(t.dataset.sel) : selected.delete(t.dataset.sel); render(); }
+  else if (t.dataset?.selDay) {
+    const [dep, ret] = t.dataset.selDay.split("|");
+    const keys = tracked().filter(w => w.depart === dep && (w.return || "") === ret).map(wKey);
+    const all = keys.every(k => selected.has(k));
+    for (const k of keys) all ? selected.delete(k) : selected.add(k);
+    render();
+  }
+  else if (t.id === "selAirport" && t.value) { for (const w of tracked()) if (w.origin === t.value || w.dest === t.value) selected.add(wKey(w)); render(); }
+  else if (t.id === "selKind" && t.value) {
+    for (const w of tracked()) {
+      const o = parseOpts(optsCode(w)), cur = latest[wKey(w)];
+      const match = {plain: !optsCode(w), bags: o.carry_on || o.checked, times: o.time_from || o.time_to < 24,
+                     alert: !!targetFor(w), none: cur && cur.price == null, skip: !!skipFare(cur, w)}[t.value];
+      if (match) selected.add(wKey(w));
+    }
+    render();
+  }
+  else if (t.id === "bulkAlertMode") { $("bulkBelowWrap").hidden = t.value !== "set"; bulkPreview(); }
+  else if (t.closest?.("#bulkPanel")) bulkPreview();
+});
+$("bulkPanel").addEventListener("input", () => bulkPreview());
+
+let bulkMode = "change";
+function bulkApply(x) {
+  // Returns a copy of watch x with the bulk panel's choices applied.
+  const y = {...x};
+  const carry = $("bulkCarry").value, checked = $("bulkChecked").value, from = $("bulkFrom").value, to = $("bulkTo").value;
+  if (carry !== "keep") { if (+carry) y.carry_on = 1; else delete y.carry_on; }
+  if (checked !== "keep") { if (+checked) y.checked = +checked; else delete y.checked; }
+  if (from !== "keep" || to !== "keep") {
+    const o = parseOpts(optsCode(x));
+    let f = from === "keep" ? o.time_from : +from, t = to === "keep" ? o.time_to : +to;
+    if (t <= f) t = 24;
+    delete y.time_from; delete y.time_to;
+    if (f > 0 || t < 24) { y.time_from = f; y.time_to = t; }
+  }
+  const mode = $("bulkAlertMode").value;
+  if (mode === "remove") delete y.alert_below;
+  if (mode === "set" && +$("bulkBelow").value > 0) y.alert_below = Math.round(+$("bulkBelow").value);
+  return y;
+}
+// What saving would do, computed against a config (the page's copy for the preview, the fresh one when saving).
+function bulkPlan(cfg) {
+  const keys = new Set(selected), result = [], merged = [], unchanged = [];
+  const others = new Set(cfg.watches.filter(x => !keys.has(wKey(x))).map(wKey));
+  const seen = new Set();
+  for (const x of cfg.watches) {
+    if (!keys.has(wKey(x))) continue;
+    const y = bulkApply(x), k = wKey(y);
+    if (bulkMode === "add") {
+      if (k === wKey(x) || others.has(k) || keys.has(k) || seen.has(k)) unchanged.push(x); else { result.push(y); seen.add(k); }
+    } else {
+      if (k !== wKey(x) && (others.has(k) || seen.has(k))) merged.push(x);
+      result.push(y); seen.add(k);
+    }
+  }
+  return {result, merged, unchanged};
+}
+function bulkPreview() {
+  const {result, merged, unchanged} = bulkPlan(config);
+  const dates = new Set(result.map(w => w.depart)).size;
+  let text;
+  if (bulkMode === "add") {
+    text = result.length ? `Adds <b>${result.length}</b> new version${result.length > 1 ? "s" : ""} on ${dates} date${dates > 1 ? "s" : ""}.` : "Pick at least one option that's different from the selected routes.";
+    if (unchanged.length) text += ` ${unchanged.length} would match a version you already track, so they're skipped.`;
+  } else {
+    text = `Changes <b>${result.length}</b> route${result.length > 1 ? "s" : ""} on ${dates} date${dates > 1 ? "s" : ""}.`;
+    if (merged.length) text += ` <span style="color:var(--up)">${merged.length} would become identical to a version you already track and be combined with it; you'll be asked to confirm.</span>`;
+  }
+  $("bulkPreview").innerHTML = text;
+}
+function openBulk(mode) {
+  bulkMode = mode;
+  for (const id of ["bulkCarry", "bulkChecked", "bulkFrom", "bulkTo", "bulkAlertMode"]) $(id).value = "keep";
+  $("bulkBelow").value = ""; $("bulkBelowWrap").hidden = true; $("bulkMsg").textContent = "";
+  $("bulkTitle").textContent = mode === "add" ? "Also track the selected routes with other options" : "Change options on the selected routes";
+  $("bulkIntro").textContent = mode === "add"
+    ? "Adds a second version of each selected route with these options; the routes you have now stay as they are. \"Keep as is\" copies the route's current setting."
+    : "Anything left on \"Keep as is\" stays as each route has it now.";
+  $("bulkKeepRow").hidden = mode === "add";
+  show("bulkPanel");
+  bulkPreview();
+}
+$("btnBulkCancel").onclick = () => show(null);
+$("btnBulkSave").onclick = () => {
+  const {result, merged} = bulkPlan(config);
+  if (!result.length) { $("bulkMsg").className = "msg bad"; $("bulkMsg").textContent = "Nothing to save."; return; }
+  if (bulkMode === "change" && merged.length && !confirm(`${merged.length} of the selected routes would become identical to a version you already track, and would be combined with it (keeping one card). Continue?`)) return;
+  if (!needToken(() => { show("bulkPanel"); $("btnBulkSave").click(); })) return;
+  const keep = $("bulkKeep").checked, mode = bulkMode, count = result.length;
+  save(async () => {
+    await updateConfig(c => {
+      const keys = new Set(selected);
+      if (mode === "add") {
+        const {result: adds} = bulkPlan(c);
+        c.watches.push(...adds.map(y => { const z = {...y}; delete z.history_from; return z; }));
+      } else {
+        const now = new Date().toISOString();
+        c.watches = c.watches.map(x => {
+          if (!keys.has(wKey(x))) return x;
+          const y = bulkApply(x), before = optsCode(x);
+          if (optsCode(y) !== before) {
+            if (keep) y.history_from = [...(x.history_from || []), {opts: before, until: now}];
+            else delete y.history_from;
+          }
+          return y;
+        });
+      }
+      const seen = new Set();
+      c.watches = c.watches.filter(x => { const k = wKey(x); if (seen.has(k)) return false; seen.add(k); return true; });
+    }, mode === "add" ? `Also track ${count} route(s) with other options from web page` : `Change options on ${count} route(s) from web page`);
+    selected.clear();
+    show(null);
+  }, $("bulkMsg"));
+};
+function bulkSkiplagged(on) {
+  if (!needToken(() => bulkSkiplagged(on))) return;
+  const keys = new Set(selected), count = keys.size;
+  save(() => updateConfig(c => {
+    for (const x of c.watches) if (keys.has(wKey(x))) { if (on) delete x.no_skiplagged; else x.no_skiplagged = true; }
+  }, `Skiplagged ${on ? "on" : "off"} for ${count} route(s) from web page`));
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  if (b.dataset.compare) { compareMode = !compareMode; render(); window.scrollTo({top: 0}); }
+  else if (b.dataset.selectMode) { selectMode = true; selected.clear(); show(null); render(); }
+  else if (b.dataset.selAll) { for (const w of tracked()) selected.add(wKey(w)); render(); }
+  else if (b.dataset.selClear) { selected.clear(); render(); }
+  else if (b.dataset.bulk === "done") { selectMode = false; selected.clear(); show(null); render(); }
+  else if (b.dataset.bulk === "change" || b.dataset.bulk === "add") openBulk(b.dataset.bulk);
+  else if (b.dataset.bulk === "skipoff") bulkSkiplagged(false);
+  else if (b.dataset.bulk === "skipon") bulkSkiplagged(true);
+  else if (b.dataset.bulk === "stop") stopKeys([...selected], "the selected routes");
+});
+
+// ---------- stop ----------
+function stopKeys(keys, label) {
+  if (!keys.length) return;
+  if (!needToken(() => stopKeys(keys, label))) return;
+  if (keys.length > 1 && !confirm(`Stop tracking ${keys.length} routes for ${label}?`)) return;
+  const drop = new Set(keys);
+  save(() => updateConfig(c => { c.watches = c.watches.filter(w => !drop.has(wKey(w))); },
+    `Stop tracking ${keys.length} flight(s) from web page`));
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  if (b.id === "btnRefresh") reload();
+  else if (b.dataset.stop) stopKeys([b.dataset.stop], "this route");
+  else if (b.dataset.target) setTarget(b.dataset.target);
+  else if (b.dataset.edit) openEdit(b.dataset.edit);
+  else if (b.dataset.fold) { const k = b.dataset.fold; folded.openRoutes.has(k) ? folded.openRoutes.delete(k) : folded.openRoutes.add(k); saveFolded(); render(); }
+  else if (b.dataset.skipDate) toggleSkipDate(b.dataset.skipDate);
+  else if (b.dataset.trackFlight) trackFlight(b.dataset.trackFlight);
+  else if (b.dataset.foldPage) {
+    folded.openRoutes.clear();
+    folded.openDays.clear();
+    if (b.dataset.foldPage === "expand") for (const w of tracked()) folded.openDays.add(w.depart + "|" + (w.return || ""));
+    saveFolded(); render();
+  }
+  else if (b.dataset.foldDay) { const g = b.dataset.foldDay; folded.openDays.has(g) ? folded.openDays.delete(g) : folded.openDays.add(g); saveFolded(); render(); }
+  else if (b.dataset.foldAll) {
+    const [dep, ret] = b.dataset.foldAll.split("|");
+    const keys = tracked().filter(w => w.depart === dep && (w.return || "") === ret && latest[wKey(w)]?.price != null).map(wKey);
+    const collapse = !keys.every(k => !folded.openRoutes.has(k));
+    for (const k of keys) collapse ? folded.openRoutes.delete(k) : folded.openRoutes.add(k);
+    saveFolded(); render();
+  }
+  else if (b.dataset.stopNone) {
+    const [dep, ret] = b.dataset.stopNone.split("|");
+    stopKeys(tracked().filter(w => w.depart === dep && (w.return || "") === ret && latest[wKey(w)] && latest[wKey(w)].price == null).map(wKey),
+      `${niceDate(dep)} that have no nonstop flights`);
+  }
+  else if (b.dataset.stopGroup) {
+    const [dep, ret] = b.dataset.stopGroup.split("|");
+    stopKeys(tracked().filter(w => w.depart === dep && (w.return || "") === ret).map(wKey), niceDate(dep));
+  }
+});
+
+// ---------- settings ----------
+$("btnSettings").onclick = () => {
+  $("setAdults").value = config.adults ?? 1;
+  $("setDollars").value = config.alert_dollars ?? 0;
+  $("setPercent").value = config.alert_percent ?? 0;
+  $("setSkip").checked = config.skiplagged ?? true;
+  $("setSkipIntl").checked = !!config.skiplagged_international;
+  $("setNewLow").checked = config.alert_new_low ?? true;
+  $("btnForgetPass").hidden = !vaultInfo;
+  $("settingsMsg").textContent = "";
+  show("settingsPanel");
+};
+$("btnCancelSettings").onclick = () => show(null);
+$("btnSaveSettings").onclick = () => {
+  if (!needToken(() => { show("settingsPanel"); $("btnSaveSettings").click(); })) return;
+  const adults = Math.max(1, Math.min(9, Math.round(+$("setAdults").value) || 1));
+  const dollars = Math.max(0, +$("setDollars").value || 0), percent = Math.max(0, +$("setPercent").value || 0);
+  const skip = $("setSkip").checked, skipIntl = $("setSkipIntl").checked, newLow = $("setNewLow").checked;
+  save(async () => {
+    await updateConfig(c => { c.adults = adults; c.alert_dollars = dollars; c.alert_percent = percent; c.skiplagged = skip; c.skiplagged_international = skipIntl; c.alert_new_low = newLow; }, "Update settings from web page");
+    show(null);
+  }, $("settingsMsg"));
+};
+
+// ---------- check now ----------
+$("btnCheck").onclick = () => {
+  if (!needToken(() => $("btnCheck").click())) return;
+  save(() => gh(`/actions/workflows/${WORKFLOW}/dispatches`, {method: "POST", body: JSON.stringify({ref: "main"}), headers: {"Content-Type": "application/json"}}));
+};
+
+async function save(action, msgEl) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll("button").forEach(b => b.disabled = true);
+  if (msgEl) { msgEl.className = "msg"; msgEl.textContent = "Saving…"; }
+  try {
+    await action();
+    if (msgEl) msgEl.textContent = "";
+    render();
+    lastRun = {status: "queued"};   // every save starts a check on GitHub
+    renderStatus();
+    setTimeout(refreshRun, 5000);
+  } catch (e) {
+    if (e.status === 401) {
+      token = null; try { localStorage.removeItem("ghToken"); } catch {}
+      $("btnDisconnect").hidden = true;
+      show("connectPanel");
+    }
+    const text = e.status === 401 ? "The saved access key stopped working (it may have expired). Connect again." : `Couldn't save: ${e.detail || e.message}`;
+    if (msgEl && e.status !== 401) { msgEl.className = "msg bad"; msgEl.textContent = text; } else alert(text);
+  } finally {
+    busy = false;
+    document.querySelectorAll("button").forEach(b => b.disabled = false);
+  }
+}
+
+// ---------- start ----------
+function openFromLink() {
+  const m = /[#&]r=([^&]+)/.exec(location.hash);
+  if (!m) return;
+  const key = decodeURIComponent(m[1]);
+  const w = tracked().find(x => wKey(x) === key);
+  window.history.replaceState(null, "", location.pathname + location.search);  // don't reopen on refresh
+  if (!w) return;
+  compareMode = false;
+  folded.openDays.add(w.depart + "|" + (w.return || ""));
+  folded.openRoutes.add(key);
+  saveFolded();
+  render();
+  const card = document.querySelector(`details[data-key="${CSS.escape(key)}"]`)?.closest(".card")
+    || document.querySelector(`[data-fold="${CSS.escape(key)}"]`)?.closest(".card");
+  if (card) { card.scrollIntoView({block: "center"}); card.classList.add("flash"); setTimeout(() => card.classList.remove("flash"), 2500); }
+}
+window.addEventListener("hashchange", openFromLink);
+
+$("btnUnlock").onclick = async () => {
+  const pass = $("passInput").value;
+  if (!pass || !vaultInfo) return;
+  $("unlockMsg").className = "msg"; $("unlockMsg").textContent = "Checking…";
+  const k = await deriveVaultKey(pass, vaultInfo);
+  if (!k) { $("unlockMsg").className = "msg bad"; $("unlockMsg").textContent = "That passphrase doesn't match. Check for typos and capital letters."; return; }
+  vaultKey = k;
+  try { localStorage.setItem("vaultKey:" + vaultInfo.salt, bytes64(await crypto.subtle.exportKey("raw", k))); } catch {}
+  $("passInput").value = ""; $("unlockMsg").textContent = "";
+  show(null);
+  reload();
+};
+$("passInput").addEventListener("keydown", e => { if (e.key === "Enter") $("btnUnlock").click(); });
+$("btnForgetPass").onclick = () => {
+  try { localStorage.removeItem("vaultKey:" + vaultInfo.salt); } catch {}
+  vaultKey = null; show(null); reload();
+};
+
+async function reload() {
+  lastLoad = Date.now();
+  try {
+    await loadAll();
+    render();
+    openFromLink();
+    await refreshRun();
+  } catch (e) {
+    if (e.locked) {
+      $("status").innerHTML = `<span class="dot"></span><span>Locked. Enter the passphrase to see fares.</span>`;
+      $("list").innerHTML = ""; $("warnings").innerHTML = "";
+      show("unlockPanel");
+      return;
+    }
+    const limited = e.status === 403 || e.status === 429;
+    $("status").innerHTML = `<span class="dot bad"></span><span>${limited
+      ? "GitHub limits how often this page can load for browsers that aren't connected. Try again in a few minutes, or connect this browser (Settings → any change prompts it)."
+      : "Couldn't load the data: " + esc(e.detail || e.message)}</span><button class="link small" id="btnRefresh" style="margin-left:auto">Retry</button>`;
+  }
+}
+reload();
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// Connected browsers can refresh freely (5,000 GitHub requests/hour); others get 60/hour.
+setInterval(() => {
+  if (document.hidden || busy) return;
+  const active = lastRun && lastRun.status !== "completed";
+  if (active) refreshRun();
+  else if (token && Date.now() - lastLoad > 120000) reload();
+}, 20000);
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) hiddenAt = Date.now();
+  else if (Date.now() - hiddenAt > 60000) reload();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+name: Check flight prices
+
+on:
+  schedule:
+    - cron: "17 * * * *"   # every hour (GitHub may start it a bit late)
+  push:                     # a change on the web page: check new flights right away
+    branches: [main]
+    paths: [config.json]
+  workflow_dispatch:        # "Check now" on the web page, or "Run workflow" on GitHub
+    inputs:
+      test_alerts:
+        description: "Only send a test email + push (no price check)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# Full checks (hourly and "Check now") share one lane and wait for each other, so two
+# never run at once and send the same alert twice. Web-page changes (which only check
+# never-checked flights) get their own lane; a newer change replaces an older one.
+concurrency:
+  group: check-prices-${{ github.event_name == 'push' && 'new' || 'full' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Check prices
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+        run: |
+          if [ "${{ inputs.test_alerts }}" = "true" ]; then
+            python notify.py
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            python tracker.py search --new
+          else
+            python tracker.py search
+          fi
+
+      - name: Save results
+        env:
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+        run: |
+          [ -f run_results.json ] || exit 0
+          git config user.name "flight-tracker-bot"
+          git config user.email "flight-tracker-bot@users.noreply.github.com"
+          # Another check may have saved meanwhile: start from the newest copy and
+          # add this run's results on top, instead of merging files line by line.
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+            python tracker.py merge
+            git add data config.json  # config.json: past dates are dropped; data/vault.json when encrypted
+            git diff --cached --quiet && exit 0
+            git commit -q -m "Price check $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push -q origin HEAD:main && exit 0
+            sleep $((attempt * 3))
+          done
+          echo "Could not save results after 5 tries"; exit 1
+
+      - name: Report a failed check
+        if: failure() && github.event_name != 'push'
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+        run: |
+          git config user.name "flight-tracker-bot"
+          git config user.email "flight-tracker-bot@users.noreply.github.com"
+          git fetch -q origin main && git reset -q --hard origin/main
+          python tracker.py failed
+          git add data/state.json
+          git diff --cached --quiet || { git commit -q -m "Record failed check" && git push -q origin HEAD:main; } || true

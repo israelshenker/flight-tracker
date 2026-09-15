@@ -1,0 +1,9 @@
+{
+  "salt": "i5GaZJmKfQFETN8Lw/165w==",
+  "iterations": 310000,
+  "check": {
+    "encrypted": "v1",
+    "iv": "YXzmSIvTxVNIqxVQ",
+    "data": "rRbK3/Kr6djmdvTqrP8h/zCncJQXgcloT9u8uPwk"
+  }
+}
