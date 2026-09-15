@@ -283,7 +283,6 @@ td.times{color:var(--muted);font-size:13px}
     <div class="row" style="flex-direction:column;align-items:flex-start;gap:6px">
       <label class="inline"><input type="checkbox" id="setSkip"> Look for skiplagged fares (one-stop tickets hourly, two-stop every 3 hours)</label>
       <label class="inline"><input type="checkbox" id="setNewLow"> Alert when a route hits its lowest fare since tracking began (even if the $ and % amounts are 0)</label>
-      <label class="inline"><input type="checkbox" id="setSkipIntl"> Include international tickets (to Canada or the Caribbean; passport needed)</label>
     </div>
     <p class="small muted" style="margin-top:0">A skiplagged fare is a ticket to a city past your destination that connects there, when it's cheaper to book it and get off at the connection. One-way, carry-on only; round trips and routes with checked bags are skipped. Airlines forbid it and may penalize repeat use.</p>
     <div class="row" style="align-items:center;margin-bottom:0">
@@ -649,7 +648,11 @@ const moveClass = cur => cur?.prev_price == null || cur.price == null || cur.pri
 const moveTitle = cur => cur?.prev_price == null || cur.price == null ? "" : cur.price === cur.prev_price ? "No change on the latest check" : `${cur.price > cur.prev_price ? "Up" : "Down"} $${Math.abs(cur.price - cur.prev_price)} on the latest check (was $${cur.prev_price})`;
 const oneWays = cur => cur?.one_ways && cur.price != null && cur.one_ways.total < cur.price ? cur.one_ways : null;
 const skipOff = dep => (config.skiplagged_off_dates || []).includes(dep);
-const skipFare = (cur, w) => !w.no_skiplagged && !skipOff(w.depart) && config.skiplagged !== false && cur?.hidden && (cur.price == null || cur.hidden.price < cur.price) ? cur.hidden : null;
+// Same rule as tracker.py's is_international(): international skiplagged endings only for international trips.
+const US_TERRITORIES = new Set(["SJU", "BQN", "PSE", "STT", "STX", "GUM", "SPN"]);
+const INTL_CODES = new Set(["YYZ","YUL","YOW","YHZ","YQB","NAS","CUN","MBJ","SDQ","PUJ","GCM","AUA","CUR","SXM","BGI","PTY","SJO","BOG","MDE","GUA","SAL","LIM","HAV","PLS","UVF"]);
+const isInternational = code => !US_TERRITORIES.has(code) && (INTL_CODES.has(code) || /^Y[A-Z]{2}$/.test(code));
+const skipFare = (cur, w) => !(cur?.hidden?.international && !isInternational(w.dest)) && !w.no_skiplagged && !skipOff(w.depart) && config.skiplagged !== false && cur?.hidden && (cur.price == null || cur.hidden.price < cur.price) ? cur.hidden : null;
 
 function render() {
   const watches = tracked();
@@ -1284,7 +1287,6 @@ $("btnSettings").onclick = () => {
   $("setDollars").value = config.alert_dollars ?? 0;
   $("setPercent").value = config.alert_percent ?? 0;
   $("setSkip").checked = config.skiplagged ?? true;
-  $("setSkipIntl").checked = !!config.skiplagged_international;
   $("setNewLow").checked = config.alert_new_low ?? true;
   $("btnForgetPass").hidden = !vaultInfo;
   $("settingsMsg").textContent = "";
@@ -1295,9 +1297,9 @@ $("btnSaveSettings").onclick = () => {
   if (!needToken(() => { show("settingsPanel"); $("btnSaveSettings").click(); })) return;
   const adults = Math.max(1, Math.min(9, Math.round(+$("setAdults").value) || 1));
   const dollars = Math.max(0, +$("setDollars").value || 0), percent = Math.max(0, +$("setPercent").value || 0);
-  const skip = $("setSkip").checked, skipIntl = $("setSkipIntl").checked, newLow = $("setNewLow").checked;
+  const skip = $("setSkip").checked, newLow = $("setNewLow").checked;
   save(async () => {
-    await updateConfig(c => { c.adults = adults; c.alert_dollars = dollars; c.alert_percent = percent; c.skiplagged = skip; c.skiplagged_international = skipIntl; c.alert_new_low = newLow; }, "Update settings from web page");
+    await updateConfig(c => { c.adults = adults; c.alert_dollars = dollars; c.alert_percent = percent; c.skiplagged = skip; delete c.skiplagged_international; c.alert_new_low = newLow; }, "Update settings from web page");
     show(null);
   }, $("settingsMsg"));
 };

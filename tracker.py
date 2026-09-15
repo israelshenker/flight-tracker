@@ -68,6 +68,13 @@ INTL_NORTH = ["YYZ", "YUL", "YOW", "YHZ", "YQB"]
 INTL_SOUTH = ["NAS", "CUN", "MBJ", "SDQ", "PUJ", "GCM", "AUA", "CUR", "SXM", "BGI",
               "PTY", "SJO", "BOG", "MDE", "GUA", "SAL", "LIM", "HAV", "PLS", "UVF"]
 INTERNATIONAL = set(INTL_NORTH + INTL_SOUTH)
+# US territories fly as domestic (no passport), so they are never "international" here.
+US_TERRITORIES = {"SJU", "BQN", "PSE", "STT", "STX", "GUM", "SPN"}
+
+
+def is_international(code):
+    """Airports needing a passport from the US: the lists above, plus Canadian codes (Y..)."""
+    return code not in US_TERRITORIES and (code in INTERNATIONAL or (len(code) == 3 and code.startswith("Y")))
 # Second connections allowed on two-stop tickets (plus the tracked destinations).
 SECOND_STOPS = ["CLE", "ORD", "IAD", "DTW", "CLT", "BOS", "PIT", "BUF", "PHL", "ATL",
                 "DCA", "BWI", "MIA", "MCO", "TPA", "IAH", "DFW", "DEN"]
@@ -321,14 +328,15 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
         for stops in (1, 2):
             last = (latest.get(key) or {}).get(f"hidden{stops}_checked_at")
             if not last or now - datetime.fromisoformat(last) >= SKIP_EVERY[stops]:
-                groups[(dep, opt["carry_on"], d in NORTH, stops)].append((o, d, dep, ret, opts))
-    intl = cfg.get("skiplagged_international")
+                # International endings only when the trip itself is international
+                # (a passport is needed anyway); US territories count as domestic.
+                groups[(dep, opt["carry_on"], d in NORTH, is_international(d), stops)].append((o, d, dep, ret, opts))
     budget = {"left": SKIP_MAX_SEARCHES}
 
     def age(g):
-        return min((latest.get(key_of(*r)) or {}).get(f"hidden{g[0][3]}_checked_at", "") for r in g[1])
+        return min((latest.get(key_of(*r)) or {}).get(f"hidden{g[0][4]}_checked_at", "") for r in g[1])
 
-    for (dep, carry, north, stops), routes in sorted(groups.items(), key=lambda g: (g[0][3], age(g))):
+    for (dep, carry, north, intl, stops), routes in sorted(groups.items(), key=lambda g: (g[0][4], age(g))):
         origins = sorted({r[0] for r in routes})
         dests = sorted({r[1] for r in routes})
         finals = (BEYOND_NORTH + (INTL_NORTH if intl else [])) if north else (BEYOND_SOUTH + (INTL_SOUTH if intl else []))
@@ -368,12 +376,14 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
                 first = it["legs"][0]
                 if len(it["legs"]) != stops + 1 or (CODE_ALIASES.get(first[0], first[0]), CODE_ALIASES.get(first[1], first[1])) != (o, d):
                     continue
+                if is_international(it["legs"][-1][1]) and not is_international(d):
+                    continue
                 if in_window(opt, first[2], first[3] if len(first) > 3 else "") and (best is None or it["price"] < best["price"]):
                     final = it["legs"][-1][1]
                     best = {"price": it["price"], "airline": it["airline"], "departs": first[2], "final": final,
                             "stops": stops, "via": [leg[1] for leg in it["legs"][1:-1]],
                             "flights": [leg[3] for leg in it["legs"] if len(leg) > 3],
-                            "international": final in INTERNATIONAL}
+                            "international": is_international(final)}
             f = fares[key_of(*r)]
             f[f"hidden{stops}"] = best
             nonstop = min(f["airlines"].values()) if f["airlines"] else None
@@ -583,6 +593,8 @@ def search(only_new=False):
                              f"{ow['back']['airline']} back at {time_label(ow['back']['departs'])}{link}")
                 counts["two one-ways"] += 1
         h = combined_hidden(f, before)
+        if h and h.get("international") and not is_international(split_key(key)[1]):
+            h = None  # saved before international endings were limited to international trips
         if h and key not in no_skip and (not new or h["price"] < new):
             prior = (before or {}).get("hidden") or {}
             if not prior.get("price") or is_flagged(prior["price"], h["price"], cfg):
