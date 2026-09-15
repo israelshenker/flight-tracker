@@ -1321,12 +1321,14 @@ async function save(action, msgEl) {
     renderStatus();
     setTimeout(refreshRun, 5000);
   } catch (e) {
+    // 401: key expired or revoked. 403 "not accessible": key is for a different repo (e.g. the old one).
+    if (e.status === 403 && /not accessible/i.test(e.detail || "")) e.status = 401;
     if (e.status === 401) {
       token = null; try { localStorage.removeItem("ghToken"); } catch {}
       $("btnDisconnect").hidden = true;
       show("connectPanel");
     }
-    const text = e.status === 401 ? "The saved access key stopped working (it may have expired). Connect again." : `Couldn't save: ${e.detail || e.message}`;
+    const text = e.status === 401 ? "The saved access key doesn't work for this repo (it may have expired, or be for the old repo). Connect again with a new key." : `Couldn't save: ${e.detail || e.message}`;
     if (msgEl && e.status !== 401) { msgEl.className = "msg bad"; msgEl.textContent = text; } else alert(text);
   } finally {
     busy = false;
