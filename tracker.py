@@ -319,6 +319,7 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
     ticket's final city, and skipping a flight cancels the rest of a round trip."""
     now = datetime.fromisoformat(stamp)
     no_skip = skiplagged_off_keys(cfg)
+    intl_for_domestic = bool(cfg.get("skiplagged_intl_domestic", False))
     groups = defaultdict(list)  # (dep, carry, northbound, pass) -> routes due
     for key in fares:
         o, d, dep, ret, opts = split_key(key)
@@ -328,9 +329,11 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
         for stops in (1, 2):
             last = (latest.get(key) or {}).get(f"hidden{stops}_checked_at")
             if not last or now - datetime.fromisoformat(last) >= SKIP_EVERY[stops]:
-                # International endings only when the trip itself is international
-                # (a passport is needed anyway); US territories count as domestic.
-                groups[(dep, opt["carry_on"], d in NORTH, is_international(d), stops)].append((o, d, dep, ret, opts))
+                # International endings: always for international trips (a passport is needed
+                # anyway); for domestic trips only if the user turned that option on.
+                # US territories count as domestic.
+                intl_ok = is_international(d) or intl_for_domestic
+                groups[(dep, opt["carry_on"], d in NORTH, intl_ok, stops)].append((o, d, dep, ret, opts))
     budget = {"left": SKIP_MAX_SEARCHES}
 
     def age(g):
@@ -376,7 +379,7 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
                 first = it["legs"][0]
                 if len(it["legs"]) != stops + 1 or (CODE_ALIASES.get(first[0], first[0]), CODE_ALIASES.get(first[1], first[1])) != (o, d):
                     continue
-                if is_international(it["legs"][-1][1]) and not is_international(d):
+                if is_international(it["legs"][-1][1]) and not intl:
                     continue
                 if in_window(opt, first[2], first[3] if len(first) > 3 else "") and (best is None or it["price"] < best["price"]):
                     final = it["legs"][-1][1]
@@ -593,8 +596,8 @@ def search(only_new=False):
                              f"{ow['back']['airline']} back at {time_label(ow['back']['departs'])}{link}")
                 counts["two one-ways"] += 1
         h = combined_hidden(f, before)
-        if h and h.get("international") and not is_international(split_key(key)[1]):
-            h = None  # saved before international endings were limited to international trips
+        if h and h.get("international") and not is_international(split_key(key)[1]) and not cfg.get("skiplagged_intl_domestic"):
+            h = None  # international ending on a domestic trip, and that option is off
         if h and key not in no_skip and (not new or h["price"] < new):
             prior = (before or {}).get("hidden") or {}
             if not prior.get("price") or is_flagged(prior["price"], h["price"], cfg):
