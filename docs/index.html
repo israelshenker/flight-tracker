@@ -1022,7 +1022,7 @@ function updateAddCount() {
   const already = +$("optBelow").value > 0 ? newWatches(true).length - n : 0;
   $("addCount").innerHTML = n || already
     ? [n ? `Adds <b>${n}</b> route/date${n > 1 ? "s" : ""} · ${total} total` : "", already ? `sets the price alert on ${already} already tracked` : ""].filter(Boolean).join(" · ")
-      + (total > SOFT_LIMIT ? ` <span style="color:var(--up)">· a lot for one page</span>` : "")
+      + ""
     : `<span class="muted">Pick an airport on each side and a date</span>`;
 }
 $("addPanel").addEventListener("input", updateAddCount);
