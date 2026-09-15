@@ -97,7 +97,10 @@ table.grid td a.up{color:var(--up)}
 table.grid td a.down{color:var(--down)}
 table.grid td.best{background:color-mix(in srgb,var(--down) 13%,transparent)}
 table.grid td.best a{text-decoration:underline;text-decoration-color:var(--down);text-underline-offset:3px}
-.gsk{display:block;font-size:11px;font-weight:600;color:#a21caf}
+.gsk{display:block;font-size:11px;font-weight:600;color:#a21caf;border-radius:4px;padding:0 3px;margin-inline:-3px}
+.gsk.best{background:color-mix(in srgb,#c026d3 16%,transparent)}
+table.grid thead th:first-child,table.grid tbody th{position:sticky;left:0;z-index:1;background:var(--card)}
+table.grid tbody th{box-shadow:1px 0 0 var(--line)}
 @media (prefers-color-scheme:dark){.gsk{color:#f0abfc}}
 .selbar{position:sticky;bottom:0;z-index:5;background:var(--card);border:1px solid var(--accent);border-radius:14px;padding:10px 14px;margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;box-shadow:0 -4px 16px rgba(0,0,0,.12)}
 .selbar b{margin-right:6px}
@@ -555,7 +558,7 @@ function tracked() {
   return out.sort((a, b) => (a.depart + (a.return || "")).localeCompare(b.depart + (b.return || "")) || a.origin.localeCompare(b.origin) || a.dest.localeCompare(b.dest) || optsCode(a).localeCompare(optsCode(b)));
 }
 
-let selectMode = false, compareMode = false;
+let selectMode = false, compareMode = true;  // "Compare dates" is the default view
 // "Compare dates": one row per route, one column per date, cheapest tracked nonstop in each cell.
 function compareHtml(watches) {
   const rows = new Map();  // "O-D" -> {date: {price, key, airline, skip}}
@@ -580,10 +583,12 @@ function compareHtml(watches) {
     out += `<div class="group"><h3>${title}</h3></div><div class="card tablewrap"><table class="grid"><thead><tr><th>Route</th>${
       dates.map(d => `<th class="num">${esc(niceDate(d))}</th>`).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
         const min = Math.min(...Object.values(r).map(c => c.price)), many = Object.keys(r).length > 1;
+        const skips = Object.values(r).filter(c => c.skip && c.skip < c.price).map(c => c.skip);
+        const minSkip = Math.min(...skips), manySkips = skips.length > 1;
         return `<tr><th scope="row">${esc(route.replace("-", " → "))}</th>${dates.map(d => {
           const c = r[d];
           if (!c) return `<td class="num muted">—</td>`;
-          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${c.skip && c.skip < c.price ? `<span class="gsk">skip $${c.skip}</span>` : ""}</td>`;
+          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${c.skip && c.skip < c.price ? `<span class="gsk${manySkips && c.skip === minSkip ? " best" : ""}">skip $${c.skip}</span>` : ""}</td>`;
         }).join("")}</tr>`;
       }).join("")}</tbody></table></div>`;
   }
@@ -690,7 +695,7 @@ function render() {
       <select id="selKind"><option value="">Select by type…</option><option value="plain">No bags, any time</option><option value="bags">With bags</option><option value="times">With a time window</option><option value="alert">With a price alert</option><option value="none">No nonstop found</option><option value="skip">Has a cheaper skiplagged fare</option></select>
       <button class="link small" data-sel-clear="1">Clear</button></div>`;
   } else {
-    html = `<div class="toolbar"><button class="link small" data-compare="1">${compareMode ? "Back to the list" : "Compare dates"}</button><button class="link small" data-select-mode="1">Select routes</button><button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button></div>`;
+    html = `<div class="toolbar"><button class="link small" data-compare="1">${compareMode ? "List view" : "Compare dates"}</button><button class="link small" data-select-mode="1">Select routes</button><button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button></div>`;
   }
   for (const [g, ws] of groups) {
     const [dep, ret] = g.split("|");
