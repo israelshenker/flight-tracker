@@ -715,7 +715,10 @@ function render() {
       html += `<div class="card compact"><div class="daysum">${best
         ? `<span><span class="lbl">Lowest </span><b class="price${moveClass(best.cur)}" style="font-size:18px" title="${esc(moveTitle(best.cur))}">$${best.cur.price}</b></span><b>${esc(best.w.origin)} → ${esc(best.w.dest)}</b>${cheapestShort(best.cur)}${(() => {
           const sk = ws.map(w => ({w, h: skipFare(latest[wKey(w)], w)})).filter(x => x.h).sort((a, b) => a.h.price - b.h.price)[0];
-          return sk && sk.h.price < best.cur.price ? `<span class="skip" title="Skiplagged: ${esc(sk.w.origin)} → ${esc(sk.w.dest)}, ${esc(sk.h.airline)}, ticket to ${esc(CITY[sk.h.final] || sk.h.final)}">skiplagged $${sk.h.price}</span>` : "";
+          if (!sk) return "";
+          // Always show the date's cheapest skiplagged fare; name its route when it isn't the route above.
+          const other = sk.w.origin !== best.w.origin || sk.w.dest !== best.w.dest;
+          return `<span class="skip" title="Skiplagged: ${esc(sk.w.origin)} → ${esc(sk.w.dest)}, ${esc(sk.h.airline)} ${esc(timeLabel(sk.h.departs))}, ticket to ${esc(CITY[sk.h.final] || sk.h.final)}">skiplagged $${sk.h.price}${other ? ` · ${esc(sk.w.origin)} → ${esc(sk.w.dest)}` : ""}</span>`;
         })()}`
         : `<span class="muted small oneline">No fares yet</span>`}
         <button class="link small" data-fold-day="${esc(g)}" style="margin-left:auto">${ws.length} route${ws.length > 1 ? "s" : ""} ▸</button></div></div>`;
