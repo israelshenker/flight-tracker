@@ -319,7 +319,6 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
     ticket's final city, and skipping a flight cancels the rest of a round trip."""
     now = datetime.fromisoformat(stamp)
     no_skip = skiplagged_off_keys(cfg)
-    intl_for_domestic = bool(cfg.get("skiplagged_intl_domestic", False))
     groups = defaultdict(list)  # (dep, carry, northbound, pass) -> routes due
     for key in fares:
         o, d, dep, ret, opts = split_key(key)
@@ -330,9 +329,9 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
             last = (latest.get(key) or {}).get(f"hidden{stops}_checked_at")
             if not last or now - datetime.fromisoformat(last) >= SKIP_EVERY[stops]:
                 # International endings: always for international trips (a passport is needed
-                # anyway); for domestic trips only if the user turned that option on.
+                # anyway); for domestic trips only if the user turned that on (off by default).
                 # US territories count as domestic.
-                intl_ok = is_international(d) or intl_for_domestic
+                intl_ok = is_international(d) or bool(cfg.get("skiplagged_intl_domestic"))
                 groups[(dep, opt["carry_on"], d in NORTH, intl_ok, stops)].append((o, d, dep, ret, opts))
     budget = {"left": SKIP_MAX_SEARCHES}
 
@@ -597,7 +596,7 @@ def search(only_new=False):
                 counts["two one-ways"] += 1
         h = combined_hidden(f, before)
         if h and h.get("international") and not is_international(split_key(key)[1]) and not cfg.get("skiplagged_intl_domestic"):
-            h = None  # international ending on a domestic trip, and that option is off
+            h = None  # international ending on a domestic trip, with that option off
         if h and key not in no_skip and (not new or h["price"] < new):
             prior = (before or {}).get("hidden") or {}
             if not prior.get("price") or is_flagged(prior["price"], h["price"], cfg):

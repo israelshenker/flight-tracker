@@ -282,7 +282,7 @@ td.times{color:var(--muted);font-size:13px}
     <p class="small muted" style="margin-top:0">You get an email and push when a fare moves by either amount, up or down. 0 turns that one off. $1 means any change.</p>
     <div class="row" style="flex-direction:column;align-items:flex-start;gap:6px">
       <label class="inline"><input type="checkbox" id="setSkip"> Look for skiplagged fares (one-stop tickets hourly, two-stop every 3 hours)</label>
-      <label class="inline"><input type="checkbox" id="setSkipIntl"> On domestic trips, also show skiplagged tickets that continue abroad (Canada, Mexico, Caribbean; passport needed). International trips always include them.</label>
+      <label class="inline"><input type="checkbox" id="setSkipIntl"> For domestic trips, also include skiplagged tickets that continue to an international city (passport needed at check-in). International trips always include them.</label>
       <label class="inline"><input type="checkbox" id="setNewLow"> Alert when a route hits its lowest fare since tracking began (even if the $ and % amounts are 0)</label>
     </div>
     <p class="small muted" style="margin-top:0">A skiplagged fare is a ticket to a city past your destination that connects there, when it's cheaper to book it and get off at the connection. One-way, carry-on only; round trips and routes with checked bags are skipped. Airlines forbid it and may penalize repeat use.</p>
@@ -649,7 +649,8 @@ const moveClass = cur => cur?.prev_price == null || cur.price == null || cur.pri
 const moveTitle = cur => cur?.prev_price == null || cur.price == null ? "" : cur.price === cur.prev_price ? "No change on the latest check" : `${cur.price > cur.prev_price ? "Up" : "Down"} $${Math.abs(cur.price - cur.prev_price)} on the latest check (was $${cur.prev_price})`;
 const oneWays = cur => cur?.one_ways && cur.price != null && cur.one_ways.total < cur.price ? cur.one_ways : null;
 const skipOff = dep => (config.skiplagged_off_dates || []).includes(dep);
-// Same rule as tracker.py's is_international(): international skiplagged endings only for international trips.
+// Same as tracker.py's is_international(). International skiplagged endings show for international
+// trips, and for domestic trips only when that setting is on.
 const US_TERRITORIES = new Set(["SJU", "BQN", "PSE", "STT", "STX", "GUM", "SPN"]);
 const INTL_CODES = new Set(["YYZ","YUL","YOW","YHZ","YQB","NAS","CUN","MBJ","SDQ","PUJ","GCM","AUA","CUR","SXM","BGI","PTY","SJO","BOG","MDE","GUA","SAL","LIM","HAV","PLS","UVF"]);
 const isInternational = code => !US_TERRITORIES.has(code) && (INTL_CODES.has(code) || /^Y[A-Z]{2}$/.test(code));
