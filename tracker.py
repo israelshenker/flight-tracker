@@ -61,7 +61,7 @@ BEYOND_NORTH = ["BOS", "BUF", "ROC", "SYR", "ALB", "BTV", "PWM", "BDL", "PVD", "
                 "PIT", "CLE", "DTW", "ORD", "MDW", "CMH", "CVG", "IND", "GRR", "MKE",
                 "MSP", "STL", "MCI", "DEN", "RDU", "CLT", "GSO", "RIC", "ORF", "DCA",
                 "IAD", "BWI", "BNA", "SDF", "AUS", "DFW", "IAH", "PHX", "LAS", "LAX",
-                "SFO", "SEA", "SAN", "SLC"]
+                "SFO", "SEA", "SAN", "SLC", "MSY"]
 BEYOND_SOUTH = ["TPA", "JAX", "RSW", "SRQ", "EYW", "MCO", "PNS", "TLH", "SAV", "CHS",
                 "MSY", "IAH", "HOU", "DFW", "AUS", "ATL", "BNA", "SJU", "STT", "STX"]
 INTL_NORTH = ["YYZ", "YUL", "YOW", "YHZ", "YQB"]
