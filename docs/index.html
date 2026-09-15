@@ -662,8 +662,6 @@ function render() {
   for (const h of history) (log[keyOf(h.o, h.d, h.dep, h.ret, h.opts)] ||= []).push(h);
 
   const warns = [];
-  if (watches.length > 400)
-    warns.push(`You're tracking <b>${watches.length}</b> route/dates. That's fine for Google's search, but the page may get slow; stopping routes under "No nonstop flights" helps.`);
   const errs = state.last_run?.errors || [];
   if (errs.length) warns.push(`${errs.length} Google search(es) failed on the last check: ${esc(errs.slice(0, 3).join("; "))}${errs.length > 3 ? "…" : ""}`);
   $("warnings").innerHTML = warns.map(w => `<div class="warn">${w}</div>`).join("");
