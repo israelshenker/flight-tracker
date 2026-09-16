@@ -105,6 +105,8 @@ button.sortdate.on{color:var(--accent);font-weight:650}
 table.grid td a{color:var(--ink);text-decoration:none;font-weight:600}
 table.grid td a.up{color:var(--up)}
 table.grid td a.down{color:var(--down)}
+table.grid td a.gone{color:var(--up);font-weight:650;opacity:.8}
+.wasprice{display:block;font-size:11px;color:var(--muted);text-decoration:line-through}
 table.grid td.best{background:color-mix(in srgb,var(--down) 13%,transparent)}
 table.grid td.best a{text-decoration:underline;text-decoration-color:var(--down);text-underline-offset:3px}
 .gsk{display:block;font-size:11px;font-weight:600;color:#a21caf;border-radius:4px;padding:0 3px;margin:1px -3px 0}
@@ -584,8 +586,9 @@ function compareHtml(watches) {
     const cur = latest[wKey(w)];
     if (!cur) continue;  // not checked yet: the cell stays "—"
     const r = rows.get(`${w.origin}-${w.dest}`) || {};
-    if (cur.price == null) {  // checked, but no nonstop flights: "N/A" unless another version has a fare
-      if (!r[w.depart]) r[w.depart] = {na: true, key: wKey(w)};
+    if (cur.price == null) {  // checked, but no nonstop flights: "GONE" if it had fares, else "N/A"
+      if (!r[w.depart] || (r[w.depart].na && !r[w.depart].gone && isGone(cur)))
+        r[w.depart] = {na: true, key: wKey(w), gone: isGone(cur) ? goneInfo(wKey(w), cur) : null};
       rows.set(`${w.origin}-${w.dest}`, r);
       continue;
     }
@@ -624,6 +627,7 @@ function compareHtml(watches) {
         return `<tr><th scope="row">${esc(route.replace("-", " → "))}</th>${dates.map(d => {
           const c = r[d];
           if (!c) return `<td class="num muted">—</td>`;
+          if (c.na && c.gone) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="gone" title="${esc(`Had nonstop fares${c.gone.at ? " until " + when(c.gone.at) : ""} (last $${c.gone.price}${c.gone.low ? `, lowest $${c.gone.low}` : ""}); none found on the latest check`)}">GONE</a>${c.gone.price != null ? `<span class="wasprice">$${c.gone.price}</span>` : ""}</td>`;
           if (c.na) return `<td class="num muted" title="Tracked, but no nonstop flights were found on the latest check">N/A</td>`;
           const sk = c.skip && c.skip < c.price ? c.skip : null;
           return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
@@ -691,6 +695,15 @@ const skiplaggedLink = w => `https://skiplagged.com/flights/${w.origin}/${w.dest
 // Fare color: red if it went up on the latest check, green if it went down, plain if unchanged.
 const moveClass = cur => cur?.prev_price == null || cur.price == null || cur.price === cur.prev_price ? "" : cur.price > cur.prev_price ? " up" : " down";
 const moveTitle = cur => cur?.prev_price == null || cur.price == null ? "" : cur.price === cur.prev_price ? "No change on the latest check" : `${cur.price > cur.prev_price ? "Up" : "Down"} $${Math.abs(cur.price - cur.prev_price)} on the latest check (was $${cur.prev_price})`;
+// Had nonstop fares before, none on the latest check.
+const isGone = cur => cur && cur.price == null && (cur.last_price != null || cur.low != null);
+function goneInfo(key, cur) {
+  let price = cur.last_price ?? null, at = cur.last_seen_at ?? null;
+  if (price == null) {  // saved before last_price existed: use the change log
+    for (const h of history) if (keyOf(h.o, h.d, h.dep, h.ret, h.opts) === key && h.price != null) { price = h.price; at = h.at; }
+  }
+  return {price: price ?? cur.low, at, low: cur.low};
+}
 const oneWays = cur => cur?.one_ways && cur.price != null && cur.one_ways.total < cur.price ? cur.one_ways : null;
 const skipOff = dep => (config.skiplagged_off_dates || []).includes(dep);
 // Same as tracker.py's is_international(). International skiplagged endings show for international
@@ -739,10 +752,11 @@ function render() {
   for (const [g, ws] of groups) {
     const [dep, ret] = g.split("|");
     const title = niceDate(dep) + (ret ? `, returning ${niceDate(ret)}` : "");
-    const priced = [], none = [], pending = [];
+    const priced = [], none = [], pending = [], gone = [];
     for (const w of ws) {
       const cur = latest[wKey(w)];
       if (!cur) pending.push(w);
+      else if (isGone(cur)) gone.push(w);
       else if (cur.price == null) none.push(w);
       else priced.push({w, cur});
     }
@@ -839,10 +853,14 @@ function render() {
           <div class="muted small">Only changes are listed; the tracker checks every hour.</div></details>
       </article>`;
     }
-    const chipList = (list, label, stopAll) => list.length ? `<div class="card none"><div class="group" style="margin:0 0 6px"><span class="muted small">${label} (${list.length})</span>${
+    const chipList = (list, label, stopAll, extra = () => "") => list.length ? `<div class="card none"><div class="group" style="margin:0 0 6px"><span class="muted small">${label} (${list.length})</span>${
       stopAll ? `<button class="link small" data-stop-none="${esc(g)}">Stop all ${list.length} with no nonstops</button>` : ""}</div><div class="nonelist">${
-      list.map(w => `<span class="nonechip">${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(wKey(w))}"${selected.has(wKey(w)) ? " checked" : ""}>` : ""}${esc(w.origin)} → ${esc(w.dest)}${optTags(optsCode(w)).length ? ` <small>(${esc(optTags(optsCode(w)).join(", "))})</small>` : ""} <a href="${googleLink(w)}" target="_blank" rel="noopener" title="Open on Google Flights">↗</a> <a href="${skiplaggedLink(w)}" target="_blank" rel="noopener" title="Open on Skiplagged">S↗</a><button title="Edit bags, times, alert" aria-label="Edit ${esc(w.origin)} to ${esc(w.dest)}" data-edit="${esc(wKey(w))}">✎</button><button title="Stop tracking" aria-label="Stop tracking ${esc(w.origin)} to ${esc(w.dest)}" data-stop="${esc(wKey(w))}">×</button></span>`).join("")}</div></div>` : "";
+      list.map(w => `<span class="nonechip">${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(wKey(w))}"${selected.has(wKey(w)) ? " checked" : ""}>` : ""}${esc(w.origin)} → ${esc(w.dest)}${optTags(optsCode(w)).length ? ` <small>(${esc(optTags(optsCode(w)).join(", "))})</small>` : ""} <a href="${googleLink(w)}" target="_blank" rel="noopener" title="Open on Google Flights">↗</a> <a href="${skiplaggedLink(w)}" target="_blank" rel="noopener" title="Open on Skiplagged">S↗</a>${extra(w)}<button title="Edit bags, times, alert" aria-label="Edit ${esc(w.origin)} to ${esc(w.dest)}" data-edit="${esc(wKey(w))}">✎</button><button title="Stop tracking" aria-label="Stop tracking ${esc(w.origin)} to ${esc(w.dest)}" data-stop="${esc(wKey(w))}">×</button></span>`).join("")}</div></div>` : "";
     html += chipList(pending, "Waiting for first check");
+    html += chipList(gone, "No Longer Available", false, w => {
+      const i = goneInfo(wKey(w), latest[wKey(w)]);
+      return ` <small>${i.price != null ? `last $${esc(i.price)}` : ""}${i.at ? ` · until ${esc(when(i.at))}` : ""}</small>`;
+    });
     html += chipList(none, "No nonstop flights found (checked once a day)", true);
   }
   if (compareMode && !selectMode) html = html.slice(0, html.indexOf("</div>") + 6) + compareHtml(watches);
@@ -1326,7 +1344,7 @@ document.addEventListener("click", e => {
   }
   else if (b.dataset.stopNone) {
     const [dep, ret] = b.dataset.stopNone.split("|");
-    stopKeys(tracked().filter(w => w.depart === dep && (w.return || "") === ret && latest[wKey(w)] && latest[wKey(w)].price == null).map(wKey),
+    stopKeys(tracked().filter(w => w.depart === dep && (w.return || "") === ret && latest[wKey(w)] && latest[wKey(w)].price == null && !isGone(latest[wKey(w)])).map(wKey),
       `${niceDate(dep)} that have no nonstop flights`);
   }
   else if (b.dataset.stopGroup) {

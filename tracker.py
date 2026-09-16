@@ -40,7 +40,8 @@ PAGE_URL = "https://israelshenker.github.io/flight-tracker/"
 FAILURE_ALERT_EVERY = timedelta(hours=12)
 HEALTH_STALE = timedelta(hours=3)          # no full check this long = checks were missed
 HEALTH_ALERT_EVERY = timedelta(hours=6)
-DEAD_ROUTE_EVERY = timedelta(hours=23)     # routes with no nonstops are checked daily
+DEAD_ROUTE_EVERY = timedelta(hours=23)
+EMPTY_CHECKS_TO_ACCEPT = 3  # empty results this many checks in a row = the flights really are gone     # routes with no nonstops are checked daily
 TIME_BUDGET_SECONDS = 28 * 60  # the GitHub job is killed at 40 min and would save nothing
 LOCAL_TZ = ZoneInfo("America/New_York")  # GitHub runs in UTC; dates are Eastern
 # Google's search box stops at 7 airports per side, but its search accepts all 8 of ours
@@ -559,7 +560,7 @@ def search(only_new=False):
           f"{f'; {len(routes) - len(todo)} with no nonstops wait for their daily check' if not only_new and len(todo) < len(routes) else ''}")
 
     started = time.monotonic()
-    fares, errors, done = {}, [], 0
+    fares, errors, done, empty_streaks = {}, [], 0, {}
     for i, (dep, ret, carry, checked, pax, origins, dests, covered) in enumerate(searches):
         if time.monotonic() - started > TIME_BUDGET_SECONDS:
             print(f"  Time budget reached; {len(searches) - i} searches left for next run.")
@@ -573,6 +574,21 @@ def search(only_new=False):
             n = pax or adults  # route's own passenger count, or the Settings number
             itineraries = per_person(run_search(dep, ret, origins, dests, n, carry, checked,
                                      had_fares or len(covered) >= 10), n)
+        except EmptyResults:
+            # Google sometimes sends an empty page by mistake, so routes that had fares aren't
+            # marked "no nonstops" on the first empty result. After EMPTY_CHECKS_TO_ACCEPT empty
+            # checks in a row they are (their flights are gone: sold out, canceled, departed).
+            done += 1
+            for r in covered:
+                k = key_of(*r)
+                streak = (latest.get(k) or {}).get("empty_streak", 0) + 1
+                if streak >= EMPTY_CHECKS_TO_ACCEPT:
+                    fares[k] = fares_for(r, [])
+                else:
+                    empty_streaks[k] = streak
+            log(f"  {label}: no flights returned (counted toward {EMPTY_CHECKS_TO_ACCEPT} empty checks in a row)",
+                f"  search {i + 1}: no flights returned (counted toward {EMPTY_CHECKS_TO_ACCEPT} empty checks in a row)")
+            continue
         except Exception as e:
             errors.append(f"{label}: {type(e).__name__}")
             log(f"  ERROR {label}: {e}", f"  ERROR in a search: {type(e).__name__}")
@@ -697,6 +713,7 @@ def search(only_new=False):
 
     write_json(RESULTS, {
         "stamp": stamp, "fares": fares, "failure_alert": failure_alert, "health_alert": health_alert,
+        "empty_streaks": empty_streaks,
         "alerts": alerts_out,
         "last_run": {"at": stamp, "searched": len(fares), "total": len(routes), "searches": attempted,
                      "errors": errors[:20], "only_new": only_new},
@@ -706,8 +723,11 @@ def search(only_new=False):
 
 
 def dead_recently(entry_, now):
-    """A route with no nonstop flights that was looked at within the last day."""
+    """A route with no nonstop flights that was looked at within the last day. Routes that
+    had fares before (no longer available) stay hourly, since flights can come back."""
     if not entry_ or entry_.get("price") is not None or not entry_.get("checked_at"):
+        return False
+    if entry_.get("low") or entry_.get("last_price"):
         return False
     return now - datetime.fromisoformat(entry_["checked_at"]) < DEAD_ROUTE_EVERY
 
@@ -738,6 +758,15 @@ def entry(stamp, f, prev=None):
     e = {"checked_at": stamp, "airlines": airlines, "times": f.get("times", {}),
          "flights": f.get("flights", []), "price": airlines.get(cheapest), "airline": cheapest,
          "prev_price": (prev or {}).get("price")}  # the page colors the fare by this change
+    # When fares disappear, remember the last fare and when it was seen ("No Longer Available").
+    if e["price"] is not None:
+        e["last_price"], e["last_seen_at"] = e["price"], stamp
+    else:
+        for k in ("last_price", "last_seen_at"):
+            if (prev or {}).get(k) is not None:
+                e[k] = prev[k]
+        if (prev or {}).get("price") is not None and "last_price" not in e:
+            e["last_price"], e["last_seen_at"] = prev["price"], prev.get("checked_at")
     lows = [p for p in ((prev or {}).get("low"), (prev or {}).get("price"), e["price"]) if p]
     if lows:
         e["low"] = min(lows)  # lowest fare seen since tracking started
@@ -807,6 +836,9 @@ def merge():
         if not f["airlines"] and (prev is None or before):
             rows.append([stamp, origin, dest, depart, ret, "", "", opts])
         latest[key] = entry(stamp, f, prev)
+    for key, streak in res.get("empty_streaks", {}).items():
+        if key in latest and latest[key].get("checked_at", "") <= stamp:
+            latest[key]["empty_streak"] = streak  # entry() above starts every new result at 0
 
     # Forget routes/dates no longer tracked (stopped on the web page, or in the past).
     wanted = {key_of(*r) for r in build_searches(cfg)}
