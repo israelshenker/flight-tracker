@@ -65,12 +65,19 @@ BEYOND_NORTH = ["BOS", "BUF", "ROC", "SYR", "ALB", "BTV", "PWM", "BDL", "PVD", "
                 "IAD", "BWI", "BNA", "SDF", "AUS", "DFW", "IAH", "PHX", "LAS", "LAX",
                 "SFO", "SEA", "SAN", "SLC", "MSY",
                 "CHS", "SAV", "MYR", "GSP", "CAE", "JAX", "DAY", "OMA", "MEM", "BHM",
-                "TYS", "SAT", "PDX", "SJC", "SNA", "SMF", "BGR", "ITH", "MDT", "ABE"]
+                "TYS", "SAT", "PDX", "SJC", "SNA", "SMF", "BGR", "ITH", "MDT", "ABE",
+                "HNL", "OGG", "OAK", "BUR", "LGB", "ONT", "ABQ", "TUS", "ELP", "BOI",
+                "DAL", "AVL", "ILM", "CHA", "CHO", "ROA", "DSM", "MSN", "OKC", "TUL",
+                "LIT", "XNA", "ICT", "SJU", "BQN", "PSE", "ACK", "MVY"]
 BEYOND_SOUTH = ["TPA", "JAX", "RSW", "SRQ", "EYW", "MCO", "PNS", "TLH", "SAV", "CHS",
-                "MSY", "IAH", "HOU", "DFW", "AUS", "ATL", "BNA", "SJU", "STT", "STX", "CLT"]
-INTL_NORTH = ["YYZ", "YUL", "YOW", "YHZ", "YQB"]
+                "MSY", "IAH", "HOU", "DFW", "AUS", "ATL", "BNA", "SJU", "STT", "STX", "CLT",
+                "BQN", "PSE", "PIE", "PGD", "VPS", "ECP", "GNV", "DAB", "DAL", "BWI",
+                "MDW", "STL", "MCI", "MEM", "RDU", "RIC", "ORF", "IND", "CMH"]
+INTL_NORTH = ["YYZ", "YUL", "YOW", "YHZ", "YQB", "LHR", "DUB"]
 INTL_SOUTH = ["NAS", "CUN", "MBJ", "SDQ", "PUJ", "GCM", "AUA", "CUR", "SXM", "BGI",
-              "PTY", "SJO", "BOG", "MDE", "GUA", "SAL", "LIM", "HAV", "PLS", "UVF", "GRU"]
+              "PTY", "SJO", "BOG", "MDE", "GUA", "SAL", "LIM", "HAV", "PLS", "UVF", "GRU",
+              "KIN", "POS", "GND", "ANU", "BZE", "RTB", "SAP", "MGA", "CZM", "SJD",
+              "SCL", "EZE", "UIO", "GYE"]
 INTERNATIONAL = set(INTL_NORTH + INTL_SOUTH)
 # US territories fly as domestic (no passport), so they are never "international" here.
 US_TERRITORIES = {"SJU", "BQN", "PSE", "STT", "STX", "GUM", "SPN"}
