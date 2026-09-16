@@ -615,10 +615,15 @@ function compareHtml(watches) {
     const cheapest = r => Math.min(...Object.values(r).filter(c => !c.na).map(c => c.price));
     const cheapestSort = r => Math.min(...Object.values(r).map(sortPrice));
     const sortingBy = dates.includes(sortDate) ? sortDate : null;
-    // Default: cheapest route first. Sorted by a date: that date's fare, routes without one last.
-    list.sort((a, b) => sortingBy
-      ? (a[1][sortingBy] ? sortPrice(a[1][sortingBy]) : Infinity) - (b[1][sortingBy] ? sortPrice(b[1][sortingBy]) : Infinity) || cheapestSort(a[1]) - cheapestSort(b[1])
-      : cheapestSort(a[1]) - cheapestSort(b[1]));
+    // Default: cheapest route first. Sorted by a date: routes with a fare that day (cheapest first),
+    // then N/A and GONE that day, then routes not tracked that day; ties by the route's cheapest fare.
+    const tier = c => !c ? 2 : c.na ? 1 : 0;
+    const byDate = (x, y) => {
+      const cx = x[1][sortingBy], cy = y[1][sortingBy];
+      return tier(cx) - tier(cy) || (tier(cx) === 0 ? sortPrice(cx) - sortPrice(cy) : 0);
+    };
+    const byCheapest = (x, y) => { const d = cheapestSort(x[1]) - cheapestSort(y[1]); return Number.isNaN(d) ? 0 : d; };
+    list.sort((a, b) => sortingBy ? byDate(a, b) || byCheapest(a, b) : byCheapest(a, b));
     out += `<div class="group"><h3>${title}</h3></div><div class="card tablewrap"><table class="grid"><thead><tr><th>Route</th>${
       dates.map(d => `<th class="num"><button class="sortdate${d === sortingBy ? " on" : ""}" data-sort-date="${d}" title="${d === sortingBy ? "Back to cheapest route first" : "Sort by the fare on this date"}">${esc(niceDate(d))}${d === sortingBy ? " ↑" : ""}</button></th>`).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
         const min = cheapest(r), many = Object.values(r).filter(c => !c.na).length > 1;
