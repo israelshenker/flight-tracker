@@ -32,6 +32,8 @@ DATA = HERE / "data"
 LATEST = DATA / "latest.json"    # current fares: key -> {checked_at, price, airline, airlines, times}
 HISTORY = DATA / "history.csv"   # change log: a row whenever an airline's fare on a route changes
 STATE = DATA / "state.json"
+ALERTS = DATA / "alerts.json"    # the last ALERTS_KEPT push alerts, shown by the page's Alert panel
+ALERTS_KEPT = 50
 RESULTS = HERE / "run_results.json"
 PAGE_URL = "https://israelshenker.github.io/flight-tracker/"
 
@@ -456,6 +458,30 @@ def combined_hidden(f, prev):
     return min(options, key=lambda h: h["price"]) if options else None
 
 
+def new_alert(kind, title, items=None, text="", details=""):
+    """A saved copy of a push alert. Tapping the push opens it on the page (#a=<id>).
+    items: one per line, {key, what, tone, price, sub}. text: a plain explanation instead."""
+    stamp = datetime.now(timezone.utc)
+    alert = {"id": stamp.strftime("%Y%m%dT%H%M%S") + f"-{kind}", "at": stamp.isoformat(timespec="seconds"),
+             "kind": kind, "title": title, "items": items or [], "text": text}
+    if details:
+        alert["details"] = details
+    return alert
+
+
+def alert_link(alert):
+    return f"{PAGE_URL}#a={alert['id']}"
+
+
+def save_alerts(new):
+    """Add alerts to data/alerts.json, newest first, keeping the last ALERTS_KEPT."""
+    if not new:
+        return
+    old = read_json(ALERTS, [])
+    ids = {a["id"] for a in new}
+    write_json(ALERTS, (sorted(new, key=lambda a: a["at"], reverse=True) + [a for a in old if a["id"] not in ids])[:ALERTS_KEPT])
+
+
 def route_link(key):
     """Page link that opens this route's date and card."""
     return f"{PAGE_URL}#r={urllib.parse.quote(key, safe='')}"
@@ -475,14 +501,17 @@ def search(only_new=False):
 
     # If the last full check is old, checks were missed (GitHub or the tracker had trouble).
     health_alert = False
+    alerts_out = []
     last_full = (state.get("last_run") or {}).get("at")
     if not only_new and last_full and now - datetime.fromisoformat(last_full) > HEALTH_STALE:
         last_alert = state.get("last_health_alert")
         if not last_alert or now - datetime.fromisoformat(last_alert) >= HEALTH_ALERT_EVERY:
             hours = (now - datetime.fromisoformat(last_full)).total_seconds() / 3600
-            notify.send("Flight tracker: checks were missed",
-                        f"The last successful full check before this one was {hours:.0f} hours ago. "
-                        f"Checks are running again now.\n\nAll fares: {PAGE_URL}", click=PAGE_URL)
+            text = (f"The last successful full check before this one was {hours:.0f} hours ago. "
+                    f"Checks are running again now.")
+            alert = new_alert("missed", "Checks were missed", text=text)
+            alerts_out.append(alert)
+            notify.send("Flight tracker: checks were missed", f"{text}\n\nAll fares: {PAGE_URL}", click=alert_link(alert))
             health_alert = True
 
     routes = build_searches(cfg)
@@ -557,7 +586,14 @@ def search(only_new=False):
         if w.get("alert_below"):
             targets[key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))] = float(w["alert_below"])
     no_skip = skiplagged_off_keys(cfg)
-    lines, counts = [], defaultdict(int)
+    lines, items, counts = [], [], defaultdict(int)
+
+    def item(key, what, tone, price, sub):
+        o, d, dep, ret, opts = split_key(key)
+        label = options_label(opts)
+        date = nice_date(dep) + (f", return {nice_date(ret)}" if ret else "")
+        items.append({"key": key, "what": what, "tone": tone, "price": price,
+                      "sub": " · ".join(x for x in (date, label, sub) if x)})
 
     def at(times):
         return f" at {', '.join(time_label(t) for t in times)}" if times else ""
@@ -588,6 +624,8 @@ def search(only_new=False):
             if tags:
                 was = f"${prev} -> " if prev else ""
                 lines.append(f"{', '.join(tags)}: {describe(key)}: {was}${new}, {detail}{link}")
+                tone = "up" if tags == [t for t in tags if t.startswith("UP")] else "down"
+                item(key, " · ".join(tags), tone, new, detail + (f" · was ${prev}" if prev else ""))
         ow = f.get("one_ways")
         if ow and new and ow["total"] < new:
             before_ow = (before or {}).get("one_ways") or {}
@@ -595,6 +633,9 @@ def search(only_new=False):
                 lines.append(f"TWO ONE-WAYS ${ow['total']}, ${new - ow['total']} under the round trip: {describe(key)}: "
                              f"{ow['out']['airline']} out at {time_label(ow['out']['departs'])} + "
                              f"{ow['back']['airline']} back at {time_label(ow['back']['departs'])}{link}")
+                item(key, f"TWO ONE-WAYS ${ow['total']}", "down", ow["total"],
+                     f"{ow['out']['airline']} out {time_label(ow['out']['departs'])} + {ow['back']['airline']} back "
+                     f"{time_label(ow['back']['departs'])} · ${new - ow['total']} under the round trip")
                 counts["two one-ways"] += 1
         h = combined_hidden(f, before)
         if h and h.get("international") and not is_international(split_key(key)[1]) and not cfg.get("skiplagged_intl_domestic"):
@@ -606,12 +647,18 @@ def search(only_new=False):
                 intl = " (international ticket: passport needed)" if h.get("international") else ""
                 lines.append(f"SKIPLAGGED ${h['price']}{vs}: {describe(key)}: {h['airline']} at {time_label(h['departs'])}, "
                              f"ticket to {h['final']}, get off at {split_key(key)[1]}{intl}{link}")
+                via = f" via {', '.join(h['via'])}" if h.get("via") else ""
+                item(key, f"SKIPLAGGED ${h['price']}", "skip", h["price"],
+                     f"{h['airline']} {time_label(h['departs'])} · ticket to {h['final']}{via}"
+                     + (f" · ${new - h['price']} under the nonstop" if new else "")
+                     + (" · international: passport needed" if h.get("international") else ""))
                 counts["skiplagged"] += 1
     if lines:
-        first_key = next((k for k in fares if route_link(k) in lines[0]), None)
-        notify.send("Flight prices: " + "; ".join(f"{n} {what}" for what, n in counts.items()),
-                    "\n".join(lines) + f"\n\nAll fares: {PAGE_URL}",
-                    click=route_link(first_key) if len(lines) == 1 and first_key else PAGE_URL)
+        title = "; ".join(f"{n} {what}" for what, n in counts.items())
+        alert = new_alert("prices", title, items=items)
+        alerts_out.append(alert)
+        # Emails keep a link per line; tapping the push opens this alert on the page.
+        notify.send("Flight prices: " + title, "\n".join(lines) + f"\n\nAll fares: {PAGE_URL}", click=alert_link(alert))
 
     # If most searches failed, Google is probably blocking us. Say so, but not every hour.
     attempted = done + len(errors)
@@ -619,15 +666,15 @@ def search(only_new=False):
     if attempted and len(errors) >= max(1, attempted / 2):
         last = state.get("last_failure_alert")
         if not last or now - datetime.fromisoformat(last) >= FAILURE_ALERT_EVERY:
-            notify.send(
-                "Flight tracker: searches failing",
-                f"{len(errors)} of {attempted} Google searches failed. Google may be blocking "
-                "the free reader.\n\n" + "\n".join(errors[:20]),
-            )
+            text = f"{len(errors)} of {attempted} Google searches failed. Google may be blocking the free reader."
+            alert = new_alert("searches", "Searches failing", text=text)
+            alerts_out.append(alert)
+            notify.send("Flight tracker: searches failing", text + "\n\n" + "\n".join(errors[:20]), click=alert_link(alert))
             failure_alert = True
 
     write_json(RESULTS, {
         "stamp": stamp, "fares": fares, "failure_alert": failure_alert, "health_alert": health_alert,
+        "alerts": alerts_out,
         "last_run": {"at": stamp, "searched": len(fares), "total": len(routes), "searches": attempted,
                      "errors": errors[:20], "only_new": only_new},
     })
@@ -652,10 +699,11 @@ def failed():
         return 0
     run = "{}/{}/actions/runs/{}".format(os.environ.get("GITHUB_SERVER_URL", "https://github.com"),
                                         os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GITHUB_RUN_ID", ""))
-    notify.send("Flight tracker: a check failed",
-                f"The hourly price check crashed, so fares weren't updated this time. It will try again "
-                f"next hour; you'll hear again only if it's still failing in {HEALTH_ALERT_EVERY.seconds // 3600} hours."
-                f"\n\nDetails: {run}", click=run)
+    text = (f"The hourly price check crashed, so fares weren't updated this time. It will try again "
+            f"next hour; you'll hear again only if it's still failing in {HEALTH_ALERT_EVERY.seconds // 3600} hours.")
+    alert = new_alert("failed", "A check failed", text=text, details=run)
+    save_alerts([alert])
+    notify.send("Flight tracker: a check failed", f"{text}\n\nDetails: {run}", click=alert_link(alert))
     state["last_health_alert"] = now.isoformat(timespec="seconds")
     write_json(STATE, state)
     return 0
@@ -751,6 +799,7 @@ def merge():
     w.writerows(rows)
     vault.write_text(HISTORY, out.getvalue())
     write_json(LATEST, latest)
+    save_alerts(res.get("alerts", []))
     drop_past_dates(cfg)
 
     if res["failure_alert"]:

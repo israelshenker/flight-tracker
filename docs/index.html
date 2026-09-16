@@ -90,6 +90,13 @@ ol li{margin-bottom:6px}
 .msg.bad{color:var(--up)}
 .msg.good{color:var(--down)}
 .empty{text-align:center;padding:30px 10px}
+.alertpanel{border-color:var(--accent);margin-top:10px}
+.alertline,.alertrow{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;border:0;border-top:1px solid var(--line);border-radius:0;background:none;padding:9px 0;color:var(--ink);font:inherit}
+.alertline:disabled{opacity:.6;cursor:default}
+.alertline .what{font-size:12px;font-weight:650;letter-spacing:.02em}
+.alertline .what.down{color:var(--down)} .alertline .what.up{color:var(--up)} .alertline .what.skip{color:#a21caf}
+@media (prefers-color-scheme:dark){.alertline .what.skip{color:#f0abfc}}
+.alertline .price.down{color:var(--down)} .alertline .price.up{color:var(--up)}
 table.grid th,table.grid td{white-space:nowrap}
 table.grid tbody th{text-align:left;font-weight:600}
 table.grid thead th:first-child,table.grid tbody th{position:sticky;left:0;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--line)}
@@ -325,6 +332,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 
 let token = null;
 try { token = localStorage.getItem("ghToken"); } catch {}
+let alerts = [], alertView = null, backToAlert = null;  // saved push alerts; alertView: alert id, "list", or null
 let config = {watches: []}, history = [], state = {}, latest = {}, lastRun = null, busy = false, loaded = false, lastLoad = 0;
 
 // ---------- GitHub API ----------
@@ -442,7 +450,7 @@ async function loadAll() {
   vaultInfo = vi ? JSON.parse(vi) : null;
   await restoreVaultKey();
   if (vaultInfo && !vaultKey) throw Object.assign(new Error("locked"), {locked: true});
-  const [cf, hist, st, lt] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json"]
+  const [cf, hist, st, lt, al] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json", "data/alerts.json"]
     .map(async f => { const t = await raw(f); return t == null ? null : openText(t); }));
   config = cf ? JSON.parse(cf) : {watches: []};
   if (!Array.isArray(config.watches)) config.watches = [];
@@ -453,6 +461,7 @@ async function loadAll() {
     history.push({at: r[0], o: r[1], d: r[2], dep: r[3], ret: r[4], price: r[5] ? Math.round(+r[5]) : null, airline: r[6], opts: r[7] || ""});
   }
   state = st ? JSON.parse(st) : {};
+  alerts = al ? JSON.parse(al) : [];
   loaded = true;
 }
 
@@ -714,7 +723,7 @@ function render() {
       <select id="selKind"><option value="">Select by type…</option><option value="plain">No bags, any time</option><option value="bags">With bags</option><option value="times">With a time window</option><option value="alert">With a price alert</option><option value="none">No nonstop found</option><option value="skip">Has a cheaper skiplagged fare</option></select>
       <button class="link small" data-sel-clear="1">Clear</button></div>`;
   } else {
-    html = `<div class="toolbar"><button class="link small" data-compare="1">${compareMode ? "List view" : "Calendar view"}</button><button class="link small" data-select-mode="1">Select routes</button>${compareMode ? "" : `<button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button>`}</div>`;
+    html = `<div class="toolbar">${backToAlert ? `<button class="link small" data-back-alert="1">‹ Back to alert</button>` : ""}<button class="link small" data-recent-alerts="1">Recent alerts</button><button class="link small" data-compare="1">${compareMode ? "List view" : "Calendar view"}</button><button class="link small" data-select-mode="1">Select routes</button>${compareMode ? "" : `<button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button>`}</div>`;
   }
   for (const [g, ws] of groups) {
     const [dep, ret] = g.split("|");
@@ -826,6 +835,7 @@ function render() {
     html += chipList(none, "No nonstop flights found (checked once a day)", true);
   }
   if (compareMode && !selectMode) html = html.slice(0, html.indexOf("</div>") + 6) + compareHtml(watches);
+  if (alertView && !selectMode) { const end = html.indexOf("</div>") + 6; html = html.slice(0, end) + alertHtml() + html.slice(end); }
   $("list").innerHTML = html;
   for (const box of document.querySelectorAll("[data-partial]")) box.indeterminate = true;
   $("selBar").hidden = !selectMode;
@@ -1369,12 +1379,64 @@ async function save(action, msgEl) {
 }
 
 // ---------- start ----------
+// ---------- saved push alerts ----------
+const alertWhen = at => new Date(at).toLocaleString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+function alertHtml() {
+  if (alertView === "list") {
+    return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Recent alerts</h2><button class="link small" data-close-alert="1">Close</button></div>
+      <div class="small muted" style="margin:2px 0 8px">Last 50 kept · newest first</div>${alerts.length ? alerts.map(a => `
+      <button class="alertrow" data-open-alert="${esc(a.id)}"><span><b>${esc(a.title)}</b><span class="small muted" style="display:block">${esc(alertWhen(a.at))}</span></span>
+        <span class="small muted">${a.items?.length ? a.items.length + " ›" : "›"}</span></button>`).join("") : `<p class="small muted">No alerts saved yet.</p>`}</div>`;
+  }
+  const a = alerts.find(x => x.id === alertView);
+  if (!a) {
+    return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Alert</h2><button class="link small" data-close-alert="1">Close</button></div>
+      <p class="small muted">This alert is still being saved. It will appear here in about a minute.</p></div>`;
+  }
+  const lines = (a.items || []).map(it => {
+    const w = tracked().find(x => wKey(x) === it.key);
+    const [route, , ] = it.key.split("|");
+    const label = route.replace("-", " → ");
+    return `<button class="alertline" ${w ? `data-alert-route="${esc(it.key)}"` : "disabled"}><span>
+        <span class="what ${esc(it.tone)}">${esc(it.what)}</span>
+        <span class="route" style="display:block;font-size:15px">${esc(label)}${w ? ' <span class="muted">›</span>' : ' <span class="small muted">(no longer tracked)</span>'}</span>
+        <span class="small muted" style="display:block">${esc(it.sub)}</span></span>
+      <span class="price ${it.tone === "up" ? "up" : it.tone === "skip" ? "" : "down"}" style="font-size:18px">$${esc(it.price)}</span></button>`;
+  }).join("");
+  return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Alert</h2><button class="link small" data-close-alert="1">Close</button></div>
+    <div class="small muted" style="margin:2px 0 8px"><b>${esc(a.title)}</b> · sent ${esc(alertWhen(a.at))}${a.items?.length ? ` · ${a.items.length} change${a.items.length > 1 ? "s" : ""}` : ""}</div>
+    ${a.text ? `<p style="margin:0 0 6px">${esc(a.text)}</p>` : ""}${a.details ? `<a class="small" href="${esc(a.details)}" target="_blank" rel="noopener">Technical details on GitHub ↗</a>` : ""}
+    ${lines}</div>`;
+}
+function openAlertFromLink() {
+  const m = /[#&]a=([^&]+)/.exec(location.hash);
+  if (!m) return;
+  window.history.replaceState(null, "", location.pathname + location.search);
+  alertView = decodeURIComponent(m[1]); backToAlert = null;
+  render(); window.scrollTo({top: 0});
+  if (!alerts.some(a => a.id === alertView)) setTimeout(() => reload(), 45000);  // push arrived before its save finished
+}
+window.addEventListener("hashchange", openAlertFromLink);
+let alertScroll = 0;
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  if (b.dataset.recentAlerts) { alertView = "list"; backToAlert = null; render(); window.scrollTo({top: 0}); }
+  else if (b.dataset.openAlert) { alertView = b.dataset.openAlert; render(); window.scrollTo({top: 0}); }
+  else if (b.dataset.closeAlert) { alertView = null; backToAlert = null; render(); }
+  else if (b.dataset.alertRoute) { alertScroll = window.scrollY; backToAlert = alertView; alertView = null; openRoute(b.dataset.alertRoute); }
+  else if (b.dataset.backAlert) { alertView = backToAlert; backToAlert = null; render(); window.scrollTo({top: alertScroll}); }
+});
+
 function openFromLink() {
   const m = /[#&]r=([^&]+)/.exec(location.hash);
   if (!m) return;
   const key = decodeURIComponent(m[1]);
-  const w = tracked().find(x => wKey(x) === key);
   window.history.replaceState(null, "", location.pathname + location.search);  // don't reopen on refresh
+  openRoute(key);
+}
+function openRoute(key) {
+  const w = tracked().find(x => wKey(x) === key);
   if (!w) return;
   compareMode = false;
   folded.openDays.add(w.depart + "|" + (w.return || ""));
@@ -1411,6 +1473,7 @@ async function reload() {
     await loadAll();
     render();
     openFromLink();
+    openAlertFromLink();
     await refreshRun();
   } catch (e) {
     if (e.locked) {

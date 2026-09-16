@@ -87,5 +87,5 @@ jobs:
           git config user.email "flight-tracker-bot@users.noreply.github.com"
           git fetch -q origin main && git reset -q --hard origin/main
           python tracker.py failed
-          git add data/state.json
+          git add data/state.json data/alerts.json
           git diff --cached --quiet || { git commit -q -m "Record failed check" && git push -q origin HEAD:main; } || true
