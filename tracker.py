@@ -41,7 +41,7 @@ FAILURE_ALERT_EVERY = timedelta(hours=12)
 HEALTH_STALE = timedelta(hours=3)          # no full check this long = checks were missed
 HEALTH_ALERT_EVERY = timedelta(hours=6)
 DEAD_ROUTE_EVERY = timedelta(hours=23)     # routes with no nonstops are checked daily
-TIME_BUDGET_SECONDS = 20 * 60  # the GitHub job is killed at 30 min and would save nothing
+TIME_BUDGET_SECONDS = 28 * 60  # the GitHub job is killed at 40 min and would save nothing
 LOCAL_TZ = ZoneInfo("America/New_York")  # GitHub runs in UTC; dates are Eastern
 # Google's search box stops at 7 airports per side, but its search accepts all 8 of ours
 # (checked against one-route-at-a-time searches: identical fares).
@@ -55,8 +55,8 @@ CODE_ALIASES = {"PBI": "DJT"}  # Palm Beach was renamed PBI -> DJT in Aug 2026
 #     reach well past typical nonstop fares; checked every hourly run.
 #   two-stop tickets: also allow common second stops (like Newark then Cleveland); more
 #     tickets compete for the 300, so it's a wider net that runs every 3 hours.
-SKIP_EVERY = {1: timedelta(minutes=50), 2: timedelta(hours=3) - timedelta(minutes=10)}
-SKIP_MAX_SEARCHES = 60  # per run; anything left goes first next run
+SKIP_EVERY = {1: timedelta(minutes=50), 2: timedelta(minutes=50)}  # both passes every hourly run
+SKIP_MAX_SEARCHES = 200  # per run; anything left goes first next run
 SKIP_SPLIT_UP_TO = 200  # dollars; see hidden_search
 NORTH = {"JFK", "LGA", "EWR", "HPN", "ACY", "PHL", "TTN", "SWF", "ISP", "BOS"}
 BEYOND_NORTH = ["BOS", "BUF", "ROC", "SYR", "ALB", "BTV", "PWM", "BDL", "PVD", "MHT",
@@ -345,6 +345,7 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
                 intl_ok = is_international(d) or bool(cfg.get("skiplagged_intl_domestic"))
                 groups[(dep, opt["carry_on"], d in NORTH, intl_ok, stops)].append((o, d, dep, ret, opts))
     budget = {"left": SKIP_MAX_SEARCHES}
+    skip_started = time.monotonic()
 
     def age(g):
         return min((latest.get(key_of(*r)) or {}).get(f"hidden{g[0][4]}_checked_at", "") for r in g[1])
@@ -405,6 +406,8 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
         log(f"  skiplagged {stops}-stop {dep}: {len(finals)} cities, {len(found)} tickets, "
               f"cheaper than the nonstop on {cheaper} of {len(routes)} routes{note}",
             f"  skiplagged {stops}-stop search: {len(found)} tickets, cheaper on {cheaper} of {len(routes)} routes{note}")
+    print(f"  skiplagged: {SKIP_MAX_SEARCHES - budget['left']} of {SKIP_MAX_SEARCHES} searches used, "
+          f"{time.monotonic() - skip_started:.0f}s")
 
 
 class SearchLimit(Exception):
@@ -420,7 +423,7 @@ def feed_tickets(dep, origins, finals, via, adults, carry, stops, need, budget):
         if budget["left"] <= 0:
             raise SearchLimit()
         budget["left"] -= 1
-        time.sleep(3 + random.random() * 4)  # be gentle with Google
+        time.sleep(1.5 + random.random() * 1.5)  # be gentle with Google, but fit every date in the hour
         try:
             tickets = google_flights.feed_search(dep, origins, finals, adults, carry, 0, stops, via)
             break
