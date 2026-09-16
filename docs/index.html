@@ -105,6 +105,8 @@ button.sortdate.on{color:var(--accent);font-weight:650}
 table.grid td a{color:var(--ink);text-decoration:none;font-weight:600}
 table.grid td a.up{color:var(--up)}
 table.grid td a.down{color:var(--down)}
+table.grid td a.na{color:var(--muted);font-weight:500}
+.nonechip.flash{outline:2px solid var(--accent);outline-offset:2px}
 table.grid td a.gone{color:var(--up);font-weight:650;opacity:.8}
 .wasprice{display:block;font-size:11px;color:var(--muted);text-decoration:line-through}
 table.grid td.best{background:color-mix(in srgb,var(--down) 13%,transparent)}
@@ -633,7 +635,7 @@ function compareHtml(watches) {
           const c = r[d];
           if (!c) return `<td class="num muted">—</td>`;
           if (c.na && c.gone) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="gone" title="${esc(`Had nonstop fares${c.gone.at ? " until " + when(c.gone.at) : ""} (last $${c.gone.price}${c.gone.low ? `, lowest $${c.gone.low}` : ""}); none found on the latest check`)}">GONE</a>${c.gone.price != null ? `<span class="wasprice">$${c.gone.price}</span>` : ""}</td>`;
-          if (c.na) return `<td class="num muted" title="Tracked, but no nonstop flights were found on the latest check">N/A</td>`;
+          if (c.na) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="na" title="Tracked, but no nonstop flights were found on the latest check">N/A</a></td>`;
           const sk = c.skip && c.skip < c.price ? c.skip : null;
           return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
         }).join("")}</tr>`;
@@ -1481,8 +1483,10 @@ function openRoute(key) {
   folded.openRoutes.add(key);
   saveFolded();
   render();
+  // Priced routes are cards; N/A and No Longer Available routes are tags in their groups.
   const card = document.querySelector(`details[data-key="${CSS.escape(key)}"]`)?.closest(".card")
-    || document.querySelector(`[data-fold="${CSS.escape(key)}"]`)?.closest(".card");
+    || document.querySelector(`[data-fold="${CSS.escape(key)}"]`)?.closest(".card")
+    || document.querySelector(`.nonechip [data-stop="${CSS.escape(key)}"]`)?.closest(".nonechip");
   if (card) { card.scrollIntoView({block: "center"}); card.classList.add("flash"); setTimeout(() => card.classList.remove("flash"), 2500); }
 }
 window.addEventListener("hashchange", openFromLink);
