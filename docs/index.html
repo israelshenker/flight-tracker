@@ -579,6 +579,7 @@ function tracked() {
 
 let selectMode = false, compareMode = true;  // compareMode = calendar view (the default)
 let sortDate = null;  // calendar: date whose fares order the rows (null = cheapest route first)
+let airportFilter = "";  // calendar: show only routes leaving from or going to this airport ("" = all)
 let sortBest = false;  // calendar: sort by best price (skiplagged when cheaper) instead of nonstop; resets on load
 // "Compare dates": one row per route, one column per date, cheapest tracked nonstop in each cell.
 function compareHtml(watches) {
@@ -600,6 +601,9 @@ function compareHtml(watches) {
     rows.set(`${w.origin}-${w.dest}`, r);
   }
   if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
+  const airports = [...new Set([...rows.keys()].flatMap(k => k.split("-")))].sort();
+  const filterBy = airports.includes(airportFilter) ? airportFilter : "";
+  if (filterBy) for (const k of [...rows.keys()]) if (!k.split("-").includes(filterBy)) rows.delete(k);
   const fromFL = k => FLORIDA_AIRPORTS.has(k.split("-")[0]), toFL = k => FLORIDA_AIRPORTS.has(k.split("-")[1]);
   const tables = [["From Florida", [...rows].filter(([k]) => fromFL(k))],
                   ["To Florida", [...rows].filter(([k]) => !fromFL(k) && toFL(k))],
@@ -608,7 +612,9 @@ function compareHtml(watches) {
     <div class="row" style="align-items:center;margin:10px 0 0"><span class="small muted">Sort by</span><div class="seg">
       <label><input type="radio" name="sortby" value="nonstop"${sortBest ? "" : " checked"}>Nonstop</label>
       <label><input type="radio" name="sortby" value="best"${sortBest ? " checked" : ""}>Best price (skiplagged when cheaper)</label>
-    </div></div>`;
+    </div></div>
+    <div class="row" style="align-items:center;margin:10px 0 0"><label class="small muted" for="airportFilter">Airport</label>
+      <select id="airportFilter"><option value="">All airports</option>${airports.map(a => `<option value="${esc(a)}"${a === filterBy ? " selected" : ""}>${esc(a)}</option>`).join("")}</select></div>`;
   for (const [title, list] of tables) {
     if (!list.length) continue;
     const dates = [...new Set(list.flatMap(([, r]) => Object.keys(r)))].sort();
@@ -1177,6 +1183,7 @@ for (const [f, t] of [["bulkFrom", "bulkTo"]]) {
 }
 document.addEventListener("change", e => {
   const t = e.target;
+  if (t.id === "airportFilter") { airportFilter = t.value; render(); return; }
   if (t.name === "sortby") { sortBest = t.value === "best"; render(); return; }
   if (t.dataset?.sel) { t.checked ? selected.add(t.dataset.sel) : selected.delete(t.dataset.sel); render(); }
   else if (t.dataset?.selDay) {
