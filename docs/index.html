@@ -582,10 +582,15 @@ function compareHtml(watches) {
   for (const w of watches) {
     if (w.return) continue;
     const cur = latest[wKey(w)];
-    if (!cur || cur.price == null) continue;
+    if (!cur) continue;  // not checked yet: the cell stays "—"
     const r = rows.get(`${w.origin}-${w.dest}`) || {};
+    if (cur.price == null) {  // checked, but no nonstop flights: "N/A" unless another version has a fare
+      if (!r[w.depart]) r[w.depart] = {na: true, key: wKey(w)};
+      rows.set(`${w.origin}-${w.dest}`, r);
+      continue;
+    }
     const skip = skipFare(cur, w)?.price;
-    if (!r[w.depart] || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur)};
+    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur)};
     else if (skip && (!r[w.depart].skip || skip < r[w.depart].skip)) r[w.depart].skip = skip;
     rows.set(`${w.origin}-${w.dest}`, r);
   }
@@ -603,8 +608,8 @@ function compareHtml(watches) {
     if (!list.length) continue;
     const dates = [...new Set(list.flatMap(([, r]) => Object.keys(r)))].sort();
     // The price rows are ordered by: nonstop, or with "Best price" the skiplagged fare when it's lower.
-    const sortPrice = c => sortBest && c.skip && c.skip < c.price ? c.skip : c.price;
-    const cheapest = r => Math.min(...Object.values(r).map(c => c.price));
+    const sortPrice = c => c.na ? Infinity : sortBest && c.skip && c.skip < c.price ? c.skip : c.price;
+    const cheapest = r => Math.min(...Object.values(r).filter(c => !c.na).map(c => c.price));
     const cheapestSort = r => Math.min(...Object.values(r).map(sortPrice));
     const sortingBy = dates.includes(sortDate) ? sortDate : null;
     // Default: cheapest route first. Sorted by a date: that date's fare, routes without one last.
@@ -613,12 +618,13 @@ function compareHtml(watches) {
       : cheapestSort(a[1]) - cheapestSort(b[1]));
     out += `<div class="group"><h3>${title}</h3></div><div class="card tablewrap"><table class="grid"><thead><tr><th>Route</th>${
       dates.map(d => `<th class="num"><button class="sortdate${d === sortingBy ? " on" : ""}" data-sort-date="${d}" title="${d === sortingBy ? "Back to cheapest route first" : "Sort by the fare on this date"}">${esc(niceDate(d))}${d === sortingBy ? " ↑" : ""}</button></th>`).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
-        const min = cheapest(r), many = Object.keys(r).length > 1;
+        const min = cheapest(r), many = Object.values(r).filter(c => !c.na).length > 1;
         const skips = Object.values(r).map(c => c.skip && c.skip < c.price ? c.skip : null).filter(Boolean);
         const skipMin = Math.min(...skips), manySkips = skips.length > 1;
         return `<tr><th scope="row">${esc(route.replace("-", " → "))}</th>${dates.map(d => {
           const c = r[d];
           if (!c) return `<td class="num muted">—</td>`;
+          if (c.na) return `<td class="num muted" title="Tracked, but no nonstop flights were found on the latest check">N/A</td>`;
           const sk = c.skip && c.skip < c.price ? c.skip : null;
           return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
         }).join("")}</tr>`;
