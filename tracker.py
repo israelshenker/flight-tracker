@@ -482,7 +482,7 @@ def combined_hidden(f, prev):
 
 
 def new_alert(kind, title, items=None, text="", details=""):
-    """A saved copy of a push alert. Tapping the push opens it on the page (#a=<id>).
+    """A saved copy of a push alert. The push's "Open alert" button opens it on the page (#a=<id>).
     items: one per line, {key, what, tone, price, sub}. text: a plain explanation instead."""
     stamp = datetime.now(timezone.utc)
     alert = {"id": stamp.strftime("%Y%m%dT%H%M%S") + f"-{kind}", "at": stamp.isoformat(timespec="seconds"),
