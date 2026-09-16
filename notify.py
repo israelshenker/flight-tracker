@@ -49,5 +49,6 @@ def send(title, body, click=None):
 
 if __name__ == "__main__":
     send("Flight tracker test", "If you can read this, alerts are working.\n\n"
-         "All fares: https://israelshenker.github.io/flight-tracker/")
+         "All fares: https://israelshenker.github.io/flight-tracker/",
+         click="https://israelshenker.github.io/flight-tracker/")
     print("Test alert sent.")
