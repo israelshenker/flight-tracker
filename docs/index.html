@@ -228,7 +228,8 @@ td.times{color:var(--muted);font-size:13px}
     </div>
     <p class="small muted" style="margin-top:0">With bags, fares include each airline's bag fees as Google lists them. Times are local to the departure airport.</p>
     <div class="row">
-      <label class="f">Alert me when the fare drops below ($, optional) <input type="number" id="optBelow" min="1" step="1" placeholder="e.g. 120"></label>
+      <label class="f">Passengers <select id="optAdults"><option value="0">Settings number</option><option value="1">1 passenger</option><option value="2">2 passengers</option><option value="3">3 passengers</option><option value="4">4 passengers</option><option value="5">5 passengers</option><option value="6">6 passengers</option><option value="7">7 passengers</option><option value="8">8 passengers</option><option value="9">9 passengers</option></select></label>
+      <label class="f">Alert me when the fare drops below ($ per person, optional) <input type="number" id="optBelow" min="1" step="1" placeholder="e.g. 120"></label>
     </div>
     <div class="row" style="align-items:center;margin-bottom:0">
       <button class="primary" id="btnDoAdd">Add and check now</button>
@@ -247,6 +248,7 @@ td.times{color:var(--muted);font-size:13px}
       <label class="f">Leaving between <span class="inline"><select id="bulkFrom"></select> and <select id="bulkTo"></select></span></label>
     </div>
     <div class="row">
+      <label class="f">Passengers <select id="bulkAdults"><option value="keep">Keep as is</option><option value="0">Settings number</option><option value="1">1 passenger</option><option value="2">2 passengers</option><option value="3">3 passengers</option><option value="4">4 passengers</option><option value="5">5 passengers</option><option value="6">6 passengers</option><option value="7">7 passengers</option><option value="8">8 passengers</option><option value="9">9 passengers</option></select></label>
       <label class="f">Price alert <select id="bulkAlertMode"><option value="keep">Keep as is</option><option value="set">Alert below $…</option><option value="remove">Remove alert</option></select></label>
       <label class="f" id="bulkBelowWrap" hidden>Alert below ($) <input type="number" id="bulkBelow" min="1" step="1"></label>
     </div>
@@ -271,7 +273,8 @@ td.times{color:var(--muted);font-size:13px}
         <div class="inline"><select id="editFrom"></select> and <select id="editTo"></select></div></div>
     </div>
     <div class="row">
-      <label class="f">Alert me when the fare drops below ($, optional) <input type="number" id="editBelow" min="1" step="1" placeholder="none"></label>
+      <label class="f">Passengers <select id="editAdults"><option value="0">Settings number</option><option value="1">1 passenger</option><option value="2">2 passengers</option><option value="3">3 passengers</option><option value="4">4 passengers</option><option value="5">5 passengers</option><option value="6">6 passengers</option><option value="7">7 passengers</option><option value="8">8 passengers</option><option value="9">9 passengers</option></select></label>
+      <label class="f">Alert me when the fare drops below ($ per person, optional) <input type="number" id="editBelow" min="1" step="1" placeholder="none"></label>
     </div>
     <div class="row"><label class="inline small"><input type="checkbox" id="editAll"> <span id="editAllLabel"></span></label></div>
     <div class="row"><label class="inline small"><input type="checkbox" id="editKeep" checked> Keep the price history when bags or times change</label></div>
@@ -286,7 +289,7 @@ td.times{color:var(--muted);font-size:13px}
   <section class="panel" id="settingsPanel" hidden>
     <h2>Settings</h2>
     <div class="row">
-      <label class="f">Adults <input type="number" id="setAdults" min="1" max="9"></label>
+      <label class="f">Passengers (for routes without their own number; prices are per person) <input type="number" id="setAdults" min="1" max="9"></label>
       <label class="f">Alert on change of ($) <input type="number" id="setDollars" min="0" step="1"></label>
       <label class="f">or (%) <input type="number" id="setPercent" min="0" step="0.5"></label>
     </div>
@@ -472,14 +475,15 @@ function optsCode(w) {
   if (+w.checked) c += `b${+w.checked}`;
   const from = +(w.time_from || 0), to = +(w.time_to ?? 24);
   if (from > 0 || to < 24) c += `t${from}-${to}`;
+  if (+w.adults) c += `p${+w.adults}`;
   if (w.flight) c += "f" + String(w.flight).toUpperCase().replace(/[^A-Z0-9]/g, "");
   return c;
 }
 function parseOpts(code = "") {
   const i = code.indexOf("f"), flight = i < 0 ? "" : code.slice(i + 1);
   if (i >= 0) code = code.slice(0, i);
-  const c = /c(\d)/.exec(code), b = /b(\d)/.exec(code), t = /t(\d+)-(\d+)/.exec(code);
-  return {carry_on: c ? +c[1] : 0, checked: b ? +b[1] : 0, time_from: t ? +t[1] : 0, time_to: t ? +t[2] : 24, flight};
+  const c = /c(\d)/.exec(code), b = /b(\d)/.exec(code), t = /t(\d+)-(\d+)/.exec(code), a = /p(\d)/.exec(code);
+  return {carry_on: c ? +c[1] : 0, checked: b ? +b[1] : 0, time_from: t ? +t[1] : 0, time_to: t ? +t[2] : 24, adults: a ? +a[1] : 0, flight};
 }
 const flightLabel = f => f ? `${f.slice(0, 2)} ${f.slice(2)}` : "";
 const hourLabel = h => h === 0 || h === 24 ? "midnight" : h === 12 ? "noon" : `${h % 12} ${h < 12 ? "AM" : "PM"}`;
@@ -491,6 +495,7 @@ function optTags(code) {
   if (o.time_from && o.time_to < 24) t.push(`Leaves ${hourLabel(o.time_from)}–${hourLabel(o.time_to)}`);
   else if (o.time_to < 24) t.push(`Leaves before ${hourLabel(o.time_to)}`);
   else if (o.time_from) t.push(`Leaves ${hourLabel(o.time_from)} or later`);
+  if (o.adults) t.push(`${o.adults} passenger${o.adults > 1 ? "s" : ""} · price per person`);
   if (o.flight) t.push(`Flight ${flightLabel(o.flight)}`);
   return t;
 }
@@ -501,13 +506,13 @@ const wKey = w => keyOf(w.origin, w.dest, w.depart, w.return, optsCode(w));
 function googleLink(w) {
   const o = parseOpts(optsCode(w));
   return googleSearchLink({depart: w.depart, ret: w.return, from: w.origin, to: w.dest, stops: 0, via: [],
-    airlines: o.flight ? [o.flight.slice(0, 2)] : [], timeFrom: o.time_from, timeTo: o.time_to, carry: o.carry_on, checked: o.checked});
+    airlines: o.flight ? [o.flight.slice(0, 2)] : [], timeFrom: o.time_from, timeTo: o.time_to, carry: o.carry_on, checked: o.checked, adults: o.adults});
 }
 // The exact skiplagged ticket: origin to the ticket's final city, through the same connections, same airline.
 function ticketLink(w, h) {
   const o = parseOpts(optsCode(w));
   return googleSearchLink({depart: w.depart, from: w.origin, to: h.final, stops: h.stops || 1, via: [w.dest, ...(h.via || [])],
-    airlines: h.flights?.[0] ? [h.flights[0].slice(0, 2)] : [], timeFrom: +h.departs.slice(0, 2), timeTo: +h.departs.slice(0, 2) + 1, carry: o.carry_on, checked: 0});
+    airlines: h.flights?.[0] ? [h.flights[0].slice(0, 2)] : [], timeFrom: +h.departs.slice(0, 2), timeTo: +h.departs.slice(0, 2) + 1, carry: o.carry_on, checked: 0, adults: o.adults});
 }
 function googleSearchLink(q) {
   const o = {time_from: q.timeFrom || 0, time_to: q.timeTo ?? 24, carry_on: q.carry || 0, checked: q.checked || 0}, bytes = [];
@@ -529,7 +534,7 @@ function googleSearchLink(q) {
   };
   leg(q.depart, q.from, q.to, true);
   if (q.ret) leg(q.ret, q.to, q.from, false);
-  for (let i = 0; i < (config.adults || 1); i++) int(8, 1, bytes);
+  for (let i = 0; i < (q.adults || config.adults || 1); i++) int(8, 1, bytes);
   int(9, 1, bytes);
   if (o.carry_on || o.checked) { const bg = []; if (o.carry_on) int(2, o.carry_on, bg); if (o.checked) int(3, o.checked, bg); field(13, bg, bytes); }
   int(19, q.ret ? 1 : 2, bytes);
@@ -969,6 +974,7 @@ function chosenOptions() {
   let from = +$("optFrom").value, to = +$("optTo").value;
   if (to <= from) to = 24;
   if (from > 0 || to < 24) { opts.time_from = from; opts.time_to = to; }
+  if (+$("optAdults").value) opts.adults = +$("optAdults").value;
   return opts;
 }
 for (const id of ["optFrom", "editFrom"])
@@ -985,6 +991,7 @@ function openEdit(key) {
   const o = parseOpts(optsCode(w));
   $("editTitle").textContent = `${w.origin} → ${w.dest}, ${niceDate(w.depart)}${w.return ? `, returning ${niceDate(w.return)}` : ""}`;
   $("editCarry").checked = !!o.carry_on;
+  $("editAdults").value = String(o.adults || 0);
   $("editChecked").value = String(o.checked);
   $("editFrom").value = String(o.time_from);
   $("editTo").value = String(o.time_to);
@@ -1003,7 +1010,7 @@ $("btnSaveEdit").onclick = () => {
   if (!w) { show(null); return; }
   let from = +$("editFrom").value, to = +$("editTo").value;
   if (to <= from) to = 24;
-  const carry = $("editCarry").checked ? 1 : 0, checked = +$("editChecked").value;
+  const carry = $("editCarry").checked ? 1 : 0, checked = +$("editChecked").value, pax = +$("editAdults").value;
   const below = +$("editBelow").value > 0 ? Math.round(+$("editBelow").value) : null;
   const all = $("editAll").checked && !$("editAll").closest(".row").hidden;
   const keep = $("editKeep").checked;
@@ -1014,8 +1021,9 @@ $("btnSaveEdit").onclick = () => {
       for (const x of c.watches) {
         if (!matches(x)) continue;
         const before = optsCode(x);
-        for (const f of ["carry_on", "checked", "time_from", "time_to", "alert_below"]) delete x[f];
+        for (const f of ["carry_on", "checked", "time_from", "time_to", "adults", "alert_below"]) delete x[f];
         if (carry) x.carry_on = carry;
+        if (pax) x.adults = pax;
         if (checked) x.checked = checked;
         if (from > 0 || to < 24) { x.time_from = from; x.time_to = to; }
         if (below) x.alert_below = below;
@@ -1165,7 +1173,8 @@ let bulkMode = "change";
 function bulkApply(x) {
   // Returns a copy of watch x with the bulk panel's choices applied.
   const y = {...x};
-  const carry = $("bulkCarry").value, checked = $("bulkChecked").value, from = $("bulkFrom").value, to = $("bulkTo").value;
+  const carry = $("bulkCarry").value, checked = $("bulkChecked").value, from = $("bulkFrom").value, to = $("bulkTo").value, pax = $("bulkAdults").value;
+  if (pax !== "keep") { if (+pax) y.adults = +pax; else delete y.adults; }
   if (carry !== "keep") { if (+carry) y.carry_on = 1; else delete y.carry_on; }
   if (checked !== "keep") { if (+checked) y.checked = +checked; else delete y.checked; }
   if (from !== "keep" || to !== "keep") {
@@ -1212,7 +1221,7 @@ function bulkPreview() {
 }
 function openBulk(mode) {
   bulkMode = mode;
-  for (const id of ["bulkCarry", "bulkChecked", "bulkFrom", "bulkTo", "bulkAlertMode"]) $(id).value = "keep";
+  for (const id of ["bulkCarry", "bulkChecked", "bulkFrom", "bulkTo", "bulkAdults", "bulkAlertMode"]) $(id).value = "keep";
   $("bulkBelow").value = ""; $("bulkBelowWrap").hidden = true; $("bulkMsg").textContent = "";
   $("bulkTitle").textContent = mode === "add" ? "Also track the selected routes with other options" : "Change options on the selected routes";
   $("bulkIntro").textContent = mode === "add"

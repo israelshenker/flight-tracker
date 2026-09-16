@@ -121,7 +121,8 @@ def log(detail, generic=None):
 # ---- search options -------------------------------------------------------
 # A watch's options are packed into a short code that is part of its key, so the
 # same route can be tracked several ways: "c1" carry-on, "b2" two checked bags,
-# "t6-12" leaving 6 AM to noon, "fUA1832" one specific flight (always last; upper case).
+# "t6-12" leaving 6 AM to noon, "p2" two passengers (routes without it use the Settings
+# number), "fUA1832" one specific flight (always last; upper case). Fares are per person.
 # No options = "" (plain fare, any time).
 # docs/index.html builds the same code; keep them in sync.
 
@@ -134,6 +135,8 @@ def options_code(w):
     t_from, t_to = int(w.get("time_from") or 0), int(w.get("time_to") or 24)
     if t_from > 0 or t_to < 24:
         code += f"t{t_from}-{t_to}"
+    if w.get("adults"):
+        code += f"p{int(w['adults'])}"
     if w.get("flight"):
         code += "f" + re.sub(r"[^A-Z0-9]", "", str(w["flight"]).upper())
     return code
@@ -144,9 +147,10 @@ def parse_options(code):
     c = re.search(r"c(\d)", code)
     b = re.search(r"b(\d)", code)
     t = re.search(r"t(\d+)-(\d+)", code)
+    a = re.search(r"p(\d)", code)
     return {"carry_on": int(c.group(1)) if c else 0, "checked": int(b.group(1)) if b else 0,
             "time_from": int(t.group(1)) if t else 0, "time_to": int(t.group(2)) if t else 24,
-            "flight": flight}
+            "adults": int(a.group(1)) if a else 0, "flight": flight}
 
 
 def options_label(code):
@@ -162,6 +166,8 @@ def options_label(code):
         parts.append(f"leaving before {hour_label(o['time_to'])}")
     elif o["time_from"]:
         parts.append(f"leaving {hour_label(o['time_from'])} or later")
+    if o["adults"]:
+        parts.append(f"{o['adults']} passenger{'s' if o['adults'] > 1 else ''}")
     if o["flight"]:
         parts.append(f"flight {o['flight'][:2]} {o['flight'][2:]}")
     return ", ".join(parts)
@@ -220,7 +226,7 @@ def plan(routes):
     for r in routes:
         o, d, dep, ret, opts = r
         opt = parse_options(opts)
-        g = (dep, ret, opt["carry_on"], opt["checked"])
+        g = (dep, ret, opt["carry_on"], opt["checked"], opt["adults"])
         groups[g][o].add(d)
         wanted[g + (o, d)].append(r)
     out = []
@@ -275,6 +281,11 @@ def describe(key):
 
 class EmptyResults(Exception):
     """Google returned no flights where there clearly should be some."""
+
+
+def per_person(itineraries, n):
+    """Google prices a search for n passengers as the total; the tracker keeps fares per person."""
+    return itineraries if n <= 1 else [{**it, "price": round(it["price"] / n)} for it in itineraries]
 
 
 def run_search(dep, ret, origins, dests, adults, carry_on, checked, expect_flights):
@@ -343,14 +354,14 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
                 # anyway); for domestic trips only if the user turned that on (off by default).
                 # US territories count as domestic.
                 intl_ok = is_international(d) or bool(cfg.get("skiplagged_intl_domestic"))
-                groups[(dep, opt["carry_on"], d in NORTH, intl_ok, stops)].append((o, d, dep, ret, opts))
+                groups[(dep, opt["carry_on"], opt["adults"] or adults, d in NORTH, intl_ok, stops)].append((o, d, dep, ret, opts))
     budget = {"left": SKIP_MAX_SEARCHES}
     skip_started = time.monotonic()
 
     def age(g):
-        return min((latest.get(key_of(*r)) or {}).get(f"hidden{g[0][4]}_checked_at", "") for r in g[1])
+        return min((latest.get(key_of(*r)) or {}).get(f"hidden{g[0][5]}_checked_at", "") for r in g[1])
 
-    for (dep, carry, north, intl, stops), routes in sorted(groups.items(), key=lambda g: (g[0][4], age(g))):
+    for (dep, carry, pax, north, intl, stops), routes in sorted(groups.items(), key=lambda g: (g[0][5], age(g))):
         origins = sorted({r[0] for r in routes})
         dests = sorted({r[1] for r in routes})
         finals = (BEYOND_NORTH + (INTL_NORTH if intl else [])) if north else (BEYOND_SOUTH + (INTL_SOUTH if intl else []))
@@ -371,7 +382,7 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
                     if time.monotonic() - started > TIME_BUDGET_SECONDS:
                         print("  Time budget reached; skipping remaining skiplagged searches.")
                         return
-                    tickets, whole = feed_tickets(dep, os_, fs, via, adults, carry, stops, need, budget)
+                    tickets, whole = feed_tickets(dep, os_, fs, via, pax, carry, stops, need, budget)
                     found += tickets
                     complete &= whole
         except SearchLimit:
@@ -432,6 +443,7 @@ def feed_tickets(dep, origins, finals, via, adults, carry, stops, need, budget):
                 raise
             log(f"  retrying skiplagged search after: {e}", "  retrying a skiplagged search")
             time.sleep(10 + random.random() * 10)
+    tickets = per_person(tickets, adults)  # `need` is a per-person nonstop fare
     if len(tickets) < google_flights.FEED_CAP:
         return tickets, True
     cutoff = sorted(t["price"] for t in tickets)[-2]
@@ -535,20 +547,20 @@ def search(only_new=False):
     for o, d, dep, ret, opts in todo:
         if ret:
             opt = parse_options(opts)
-            back_opts = options_code({"carry_on": opt["carry_on"], "checked": opt["checked"]})
+            back_opts = options_code({"carry_on": opt["carry_on"], "checked": opt["checked"], "adults": opt["adults"]})
             extras.add((o, d, dep, "", opts))
             extras.add((d, o, ret, "", back_opts))
     extras -= set(routes)
     searches = plan(sorted(set(todo) | extras))
     # Longest-unchecked first, so anything cut off by the time budget goes first next run.
-    searches.sort(key=lambda s: min((latest.get(key_of(*r)) or {}).get("checked_at", "") for r in s[6]))
+    searches.sort(key=lambda s: min((latest.get(key_of(*r)) or {}).get("checked_at", "") for r in s[7]))
     print(f"{len(todo)} of {len(routes)} route/dates in {len(searches)} searches"
           f"{f' (plus {len(extras)} one-way legs for round trips)' if extras else ''}"
           f"{f'; {len(routes) - len(todo)} with no nonstops wait for their daily check' if not only_new and len(todo) < len(routes) else ''}")
 
     started = time.monotonic()
     fares, errors, done = {}, [], 0
-    for i, (dep, ret, carry, checked, origins, dests, covered) in enumerate(searches):
+    for i, (dep, ret, carry, checked, pax, origins, dests, covered) in enumerate(searches):
         if time.monotonic() - started > TIME_BUDGET_SECONDS:
             print(f"  Time budget reached; {len(searches) - i} searches left for next run.")
             break
@@ -558,8 +570,9 @@ def search(only_new=False):
         label = f"{','.join(origins)} -> {','.join(dests)} {dep}{' / ' + ret if ret else ''}{bags}"
         try:
             had_fares = any((latest.get(key_of(*r)) or {}).get("price") for r in covered)
-            itineraries = run_search(dep, ret, origins, dests, adults, carry, checked,
-                                     had_fares or len(covered) >= 10)
+            n = pax or adults  # route's own passenger count, or the Settings number
+            itineraries = per_person(run_search(dep, ret, origins, dests, n, carry, checked,
+                                     had_fares or len(covered) >= 10), n)
         except Exception as e:
             errors.append(f"{label}: {type(e).__name__}")
             log(f"  ERROR {label}: {e}", f"  ERROR in a search: {type(e).__name__}")
@@ -580,7 +593,7 @@ def search(only_new=False):
         opt = parse_options(opts)
         leg_of = lambda k: legs.get(k) or fares.get(k)  # a leg may also be a route you track
         out = leg_of(key_of(o, d, dep, "", opts))
-        back = leg_of(key_of(d, o, ret, "", options_code({"carry_on": opt["carry_on"], "checked": opt["checked"]})))
+        back = leg_of(key_of(d, o, ret, "", options_code({"carry_on": opt["carry_on"], "checked": opt["checked"], "adults": opt["adults"]})))
         if out and back and out["airlines"] and back["airlines"]:
             pick = lambda leg: min(leg["flights"], key=lambda x: x["price"]) if leg["flights"] else None
             po, pb = pick(out), pick(back)
