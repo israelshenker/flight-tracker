@@ -799,19 +799,9 @@ def log_trails(rows):
 
 
 def watch_trail(w, trails):
-    """A route's fare points across its settings: when bags/times changed and the page kept
-    the history (history_from), the old settings' points count until the change."""
-    o, d, dep, ret = w["origin"], w["dest"], w["depart"], w.get("return", "")
-    out, start = [], ""
-    segments = [(h.get("opts", ""), utc(h["until"])) for h in w.get("history_from", [])]
-    for opts, until in segments + [(options_code(w), "9999")]:
-        pts = trails.get(key_of(o, d, dep, ret, opts), [])
-        in_effect = [p for p in pts if p[0] < start][-1:]  # the fare these settings had when they started
-        for at, price in [[start, p[1]] for p in in_effect] + [p for p in pts if start <= p[0] < until]:
-            if not out or out[-1][1] != price:  # a settings change at the same fare isn't a move
-                out.append([at, price])
-        start = until
-    return out
+    """A route's fare points under its current bags/times/passengers. Earlier settings aren't
+    included: a settings change isn't a market move (user's choice), so moves restart there."""
+    return trails.get(key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)), [])
 
 
 def moves_from_log(e, trail):
@@ -913,9 +903,7 @@ def merge():
     state = read_json(STATE, {})
     stamp = res["stamp"]
 
-    rows, carried = [], None
-    history_from = {key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)): w
-                    for w in cfg.get("watches", []) if w.get("history_from")}
+    rows = []
     for key, f in res["fares"].items():
         prev = latest.get(key)
         if prev and prev.get("checked_at", "") > stamp:
@@ -932,12 +920,9 @@ def merge():
         if not f["airlines"] and (prev is None or before):
             rows.append([stamp, origin, dest, depart, ret, "", "", opts])
         latest[key] = entry(stamp, f, prev)
-        if prev is None and history_from.get(key):  # bags/times changed, history kept
-            carried = carried or log_trails(read_log())
-            latest[key]["moves"] = moves_from_log(latest[key], watch_trail(history_from[key], carried))
-    if state.get("moves_from_history") != 3:
+    if state.get("moves_from_history") != 4:
         moves_from_history(latest, cfg)
-        state["moves_from_history"] = 3
+        state["moves_from_history"] = 4
     for key, streak in res.get("empty_streaks", {}).items():
         if key in latest and latest[key].get("checked_at", "") <= stamp:
             latest[key]["empty_streak"] = streak  # entry() above starts every new result at 0

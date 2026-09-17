@@ -597,7 +597,7 @@ function compareHtml(watches) {
       continue;
     }
     const skip = skipFare(cur, w)?.price;
-    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur)};
+    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur, w)};
     else if (skip && (!r[w.depart].skip || skip < r[w.depart].skip)) r[w.depart].skip = skip;
     rows.set(`${w.origin}-${w.dest}`, r);
   }
@@ -721,18 +721,19 @@ function dayMoves(cur) {
 }
 const moveClass = cur => { const m = dayMoves(cur); return !m || m.base == null || m.base === cur.price ? "" : cur.price > m.base ? " up" : " down"; };
 const moveDot = cur => { const m = dayMoves(cur); return m && m.moves > (m.base !== cur.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
-function dayBadge(cur) {
+function dayBadge(cur, w) {
   const m = dayMoves(cur);
   if (!m || m.base == null || m.base === cur.price) return "";
   const up = cur.price > m.base;
-  return `<span class="badge ${up ? "up" : "down"}" title="${esc(moveTitle(cur))}">${m.full ? "24 h" : `${m.hours} h`}: ${up ? "▲" : "▼"} $${Math.abs(cur.price - m.base)}</span>`;
+  return `<span class="badge ${up ? "up" : "down"}" title="${esc(moveTitle(cur, w))}">${m.full ? "24 h" : `${m.hours} h`}: ${up ? "▲" : "▼"} $${Math.abs(cur.price - m.base)}</span>`;
 }
-function moveTitle(cur) {
+function moveTitle(cur, w) {
   const m = dayMoves(cur);
   if (!m) return "";
   const since = m.full ? "24 hours ago" : "the first check";
   let vs = m.base == null ? `No nonstop fare ${since}` : m.base === cur.price ? `Same as ${since} ($${m.base})` : `${cur.price > m.base ? "Up" : "Down"} $${Math.abs(cur.price - m.base)} from ${since} ($${m.base})`;
-  if (!m.full) vs = `Tracked ${m.hours} hour${m.hours > 1 ? "s" : ""}: ${vs[0].toLowerCase()}${vs.slice(1)}`;
+  // Moves count only under the current bags/times/passengers (a settings change isn't a market move).
+  if (!m.full) vs = `${w?.history_from?.length ? "Bags, times or passengers changed" : "Tracked"} ${m.hours} hour${m.hours > 1 ? "s" : ""}${w?.history_from?.length ? " ago" : ""}: ${vs[0].toLowerCase()}${vs.slice(1)}`;
   if (!m.moves) return `${vs}. No moves.`;
   return `${vs}. ${m.prices.map(p => p == null ? "none" : "$" + p).join(" → ")}. Moved ${m.moves} time${m.moves > 1 ? "s" : ""}: high $${m.high}, low $${m.low}.`;
 }
@@ -812,7 +813,7 @@ function render() {
     if (dayFolded) {
       const best = priced[0];
       html += `<div class="card compact"><div class="daysum">${best
-        ? `<span><span class="lbl">Lowest </span><b class="price${moveClass(best.cur)}" style="font-size:18px" title="${esc(moveTitle(best.cur))}">${moveDot(best.cur)}$${best.cur.price}</b></span><b>${esc(best.w.origin)} → ${esc(best.w.dest)}</b>${cheapestShort(best.cur)}${(() => {
+        ? `<span><span class="lbl">Lowest </span><b class="price${moveClass(best.cur)}" style="font-size:18px" title="${esc(moveTitle(best.cur, best.w))}">${moveDot(best.cur)}$${best.cur.price}</b></span><b>${esc(best.w.origin)} → ${esc(best.w.dest)}</b>${cheapestShort(best.cur)}${(() => {
           const sk = ws.map(w => ({w, h: skipFare(latest[wKey(w)], w)})).filter(x => x.h).sort((a, b) => a.h.price - b.h.price)[0];
           if (!sk) return "";
           // Always show the date's cheapest skiplagged fare; name its route when it isn't the route above.
@@ -833,7 +834,7 @@ function render() {
 
         html += `<article class="card compact"><div class="cline">
           ${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(k)}" aria-label="Select ${esc(w.origin)} to ${esc(w.dest)}"${selected.has(k) ? " checked" : ""}>` : `<button class="fold" data-fold="${esc(k)}" aria-expanded="false" title="Show details">▸</button>`}<span class="route">${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</span>
-          <span class="rest" title="${esc(cheapestFlights(cur))}">${tags}${cheapestShort(cur).replace('class="oneline"', 'class="flights"')}</span>${skipFare(cur, w) ? `<span class="skip">skiplagged $${skipFare(cur, w).price}</span>` : ""}${oneWays(cur) ? `<span class="skip ow">2 one-ways $${oneWays(cur).total}</span>` : ""}<span class="price${moveClass(cur)}" title="${esc(moveTitle(cur))}">${moveDot(cur)}$${cur.price}</span>
+          <span class="rest" title="${esc(cheapestFlights(cur))}">${tags}${cheapestShort(cur).replace('class="oneline"', 'class="flights"')}</span>${skipFare(cur, w) ? `<span class="skip">skiplagged $${skipFare(cur, w).price}</span>` : ""}${oneWays(cur) ? `<span class="skip ow">2 one-ways $${oneWays(cur).total}</span>` : ""}<span class="price${moveClass(cur)}" title="${esc(moveTitle(cur, w))}">${moveDot(cur)}$${cur.price}</span>
         </div></article>`;
         continue;
       }
@@ -854,9 +855,9 @@ function render() {
       const first = seen[0], firstAt = changes.find(r => !r.marker && r.price != null)?.at;
       // Two periods, labeled: the last 24 hours (matches the price color) and since tracking began.
       // A route tracked under a day shows only the first; both would be the same change.
-      const began = first != null && cur.price !== first && dayMoves(cur)?.full !== false
+      const began = first != null && cur.price !== first && (dayMoves(cur)?.full !== false || w.history_from?.length)
         ? `<span class="badge ${cur.price > first ? "up" : "down"}">Since tracking began${firstAt ? " " + esc(new Date(firstAt).toLocaleDateString("en-US", {timeZone: "America/New_York", month: "short", day: "numeric"})) : ""}: ${cur.price > first ? "▲" : "▼"} $${Math.abs(cur.price - first)}</span>` : "";
-      const badge = dayBadge(cur) + began;
+      const badge = dayBadge(cur, w) + began;
       const lowHigh = seen.length ? `Low $${Math.min(...seen, cur.price)} · High $${Math.max(...seen, cur.price)}` : "";
       const airlines = Object.entries(cur.airlines || {}).sort((a, b) => a[1] - b[1])
         .map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td><td class="times">${esc((cur.times?.[a] || []).map(timeLabel).join(", "))}</td></tr>`).join("");
@@ -871,7 +872,7 @@ function render() {
           <div><div class="route"><button class="fold" data-fold="${esc(k)}" aria-expanded="true" title="Show just the lowest fare">▾</button>${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</div>
             ${tags ? `<div class="tags">${tags}</div>` : ""}
             <div class="muted small">checked ${esc(ago(cur.checked_at))} · <a class="gf" href="${googleLink(w)}" target="_blank" rel="noopener">Google Flights ↗</a> · <a class="gf" href="${skiplaggedLink(w)}" target="_blank" rel="noopener">Skiplagged ↗</a></div></div>
-          <div class="right"><div class="price${moveClass(cur)}" title="${esc(moveTitle(cur))}">${moveDot(cur)}$${cur.price}</div><div class="muted small">${esc(cur.airline)}</div></div>
+          <div class="right"><div class="price${moveClass(cur)}" title="${esc(moveTitle(cur, w))}">${moveDot(cur)}$${cur.price}</div><div class="muted small">${esc(cur.airline)}</div></div>
         </div>
         ${(() => {
           const ow = oneWays(cur);
