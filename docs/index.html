@@ -924,10 +924,10 @@ function render() {
 function topScrollbars() {
   for (const wrap of document.querySelectorAll(".tablewrap")) {
     const table = wrap.querySelector("table.grid");
-    if (!table || table.scrollWidth <= wrap.clientWidth) continue;
+    if (!table || wrap.scrollWidth <= wrap.clientWidth) continue;
     const bar = document.createElement("div");
     bar.className = "topscroll";
-    bar.innerHTML = `<div style="width:${table.scrollWidth}px"></div>`;
+    bar.innerHTML = `<div style="width:${wrap.scrollWidth}px"></div>`;
     wrap.parentNode.insertBefore(bar, wrap);
     let busy = false;
     const sync = (from, to) => { if (busy) return; busy = true; to.scrollLeft = from.scrollLeft; busy = false; };
