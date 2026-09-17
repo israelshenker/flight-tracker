@@ -803,11 +803,14 @@ def watch_trail(w, trails):
     the history (history_from), the old settings' points count until the change."""
     o, d, dep, ret = w["origin"], w["dest"], w["depart"], w.get("return", "")
     out, start = [], ""
-    for h in w.get("history_from", []):
-        until = utc(h["until"])
-        out += [p for p in trails.get(key_of(o, d, dep, ret, h.get("opts", "")), []) if start <= p[0] < until]
+    segments = [(h.get("opts", ""), utc(h["until"])) for h in w.get("history_from", [])]
+    for opts, until in segments + [(options_code(w), "9999")]:
+        pts = trails.get(key_of(o, d, dep, ret, opts), [])
+        in_effect = [p for p in pts if p[0] < start][-1:]  # the fare these settings had when they started
+        for at, price in [[start, p[1]] for p in in_effect] + [p for p in pts if start <= p[0] < until]:
+            if not out or out[-1][1] != price:  # a settings change at the same fare isn't a move
+                out.append([at, price])
         start = until
-    out += [p for p in trails.get(key_of(o, d, dep, ret, options_code(w)), []) if p[0] >= start]
     return out
 
 
@@ -826,6 +829,7 @@ def read_log():
 def moves_from_history(latest, cfg):
     """One-time rebuild of `moves` from the change log (including earlier bag/time settings)."""
     trails = log_trails(read_log())
+    m_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
     for w in cfg.get("watches", []):
         e = latest.get(key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)))
         if e and e.get("checked_at"):
@@ -833,7 +837,9 @@ def moves_from_history(latest, cfg):
     m = [e["moves"] for e in latest.values() if e.get("moves") and e.get("price") is not None]
     print(f"  24-hour moves filled from the change log: {len(m)} priced routes, "
           f"{sum(t[0][1] is not None and t[0][1] != t[-1][1] for t in m)} changed, "
-          f"{sum(len(t) > 1 for t in m)} moved")
+          f"{sum(len(t) > 1 for t in m)} moved; "
+          f"{sum(1 for w in cfg.get('watches', []) for h in w.get('history_from', []) if utc(h['until']) > m_cutoff)} "
+          f"bag/time/passenger changes in the last 24 hours")
 
 
 def entry(stamp, f, prev=None):
@@ -929,9 +935,9 @@ def merge():
         if prev is None and history_from.get(key):  # bags/times changed, history kept
             carried = carried or log_trails(read_log())
             latest[key]["moves"] = moves_from_log(latest[key], watch_trail(history_from[key], carried))
-    if state.get("moves_from_history") != 2:
+    if state.get("moves_from_history") != 3:
         moves_from_history(latest, cfg)
-        state["moves_from_history"] = 2
+        state["moves_from_history"] = 3
     for key, streak in res.get("empty_streaks", {}).items():
         if key in latest and latest[key].get("checked_at", "") <= stamp:
             latest[key]["empty_streak"] = streak  # entry() above starts every new result at 0
