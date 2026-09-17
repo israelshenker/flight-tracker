@@ -272,10 +272,11 @@ def nice_date(iso):
 
 
 def describe(key):
+    """Alert line start, date first (user's order: date, route, price, change): "Thu Sep 24 · FLL-TTN (carry-on)"."""
     o, d, dep, ret, opts = split_key(key)
-    text = f"{o}-{d} {nice_date(dep)}" + (f", return {nice_date(ret)}" if ret else "")
     label = options_label(opts)
-    return text + (f" ({label})" if label else "")
+    return (f"{nice_date(dep)}" + (f", return {nice_date(ret)}" if ret else "")
+            + f" · {o}-{d}" + (f" ({label})" if label else ""))
 
 
 # ---- searching ------------------------------------------------------------
@@ -661,15 +662,15 @@ def search(only_new=False):
                 tags.append(f"{'DOWN' if new < prev else 'UP'} ${abs(new - prev)}")
                 counts["down" if new < prev else "up"] += 1
             if tags:
-                was = f"${prev} -> " if prev else ""
-                lines.append(f"{', '.join(tags)}: {describe(key)}: {was}${new}, {detail}{link}")
+                was = f" (was ${prev})" if prev else ""
+                lines.append(f"{describe(key)}: ${new} · {', '.join(tags)}{was} · {detail}{link}")
                 tone = "up" if tags == [t for t in tags if t.startswith("UP")] else "down"
                 item(key, " · ".join(tags), tone, new, detail + (f" · was ${prev}" if prev else ""))
         ow = f.get("one_ways")
         if ow and new and ow["total"] < new:
             before_ow = (before or {}).get("one_ways") or {}
             if not before_ow or is_flagged(before_ow.get("total", 0), ow["total"], cfg):
-                lines.append(f"TWO ONE-WAYS ${ow['total']}, ${new - ow['total']} under the round trip: {describe(key)}: "
+                lines.append(f"{describe(key)}: ${ow['total']} · TWO ONE-WAYS, ${new - ow['total']} under the round trip · "
                              f"{ow['out']['airline']} out at {time_label(ow['out']['departs'])} + "
                              f"{ow['back']['airline']} back at {time_label(ow['back']['departs'])}{link}")
                 item(key, f"TWO ONE-WAYS ${ow['total']}", "down", ow["total"],
@@ -684,7 +685,7 @@ def search(only_new=False):
             if not prior.get("price") or is_flagged(prior["price"], h["price"], cfg):
                 vs = f", ${new - h['price']} under the nonstop" if new else ""
                 intl = " (international ticket: passport needed)" if h.get("international") else ""
-                lines.append(f"SKIPLAGGED ${h['price']}{vs}: {describe(key)}: {h['airline']} at {time_label(h['departs'])}, "
+                lines.append(f"{describe(key)}: ${h['price']} · SKIPLAGGED{vs} · {h['airline']} at {time_label(h['departs'])}, "
                              f"ticket to {h['final']}, get off at {split_key(key)[1]}{intl}{link}")
                 via = f" via {', '.join(h['via'])}" if h.get("via") else ""
                 item(key, f"SKIPLAGGED ${h['price']}", "skip", h["price"],
