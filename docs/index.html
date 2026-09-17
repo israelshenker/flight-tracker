@@ -654,16 +654,11 @@ const FLORIDA_AIRPORTS = new Set(["FLL", "DJT", "PBI", "MIA", "MCO", "SFB", "MLB
   "EYW", "MTH", "PNS", "VPS", "ECP", "TLH", "GNV", "DAB", "LAL", "OCF", "BOW"]);
 const selected = new Set();  // route keys ticked in "Select routes" mode
 const openHistory = new Set();  // keep opened "Price history" sections open across refreshes
-// Days and route cards start collapsed; this browser remembers which ones were opened.
+// Days and route cards start collapsed every time the page opens (user's choice); what's opened
+// stays open only until the page is reloaded.
 const folded = {openRoutes: new Set(), openDays: new Set()};
-try {
-  const saved = JSON.parse(localStorage.getItem("folded") || "{}");
-  for (const k of saved.openRoutes || []) folded.openRoutes.add(k);
-  for (const d of saved.openDays || []) folded.openDays.add(d);
-} catch {}
-function saveFolded() {
-  try { localStorage.setItem("folded", JSON.stringify({openRoutes: [...folded.openRoutes], openDays: [...folded.openDays]})); } catch {}
-}
+try { localStorage.removeItem("folded"); } catch {}  // older versions remembered opened ones
+function saveFolded() {}
 document.addEventListener("toggle", e => {
   const k = e.target.dataset?.key;
   if (k) e.target.open ? openHistory.add(k) : openHistory.delete(k);
