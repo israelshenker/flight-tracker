@@ -730,7 +730,7 @@ function dayBadge(cur, w) {
 function moveTitle(cur, w) {
   const m = dayMoves(cur);
   if (!m) return "";
-  const since = m.full ? "24 hours ago" : "the first check";
+  const since = m.full ? "24 hours ago" : w?.history_from?.length ? "the first check after that" : "the first check";
   let vs = m.base == null ? `No nonstop fare ${since}` : m.base === cur.price ? `Same as ${since} ($${m.base})` : `${cur.price > m.base ? "Up" : "Down"} $${Math.abs(cur.price - m.base)} from ${since} ($${m.base})`;
   // Moves count only under the current bags/times/passengers (a settings change isn't a market move).
   if (!m.full) vs = `${w?.history_from?.length ? "Bags, times or passengers changed" : "Tracked"} ${m.hours} hour${m.hours > 1 ? "s" : ""}${w?.history_from?.length ? " ago" : ""}: ${vs[0].toLowerCase()}${vs.slice(1)}`;
