@@ -74,6 +74,8 @@ input[type=number]{width:100px}
 details{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
 summary{cursor:pointer;color:var(--accent);font-size:14px}
 .tablewrap{overflow-x:auto}
+.topscroll{overflow-x:auto;overflow-y:hidden}
+.topscroll>div{height:1px}
 table{width:100%;border-collapse:collapse;margin-top:6px;font-size:14px}
 th,td{text-align:left;padding:5px 4px;border-bottom:1px solid var(--line)}
 th{color:var(--muted);font-weight:500;font-size:12px}
@@ -907,12 +909,30 @@ function render() {
   if (compareMode && !selectMode) html = html.slice(0, html.indexOf("</div>") + 6) + compareHtml(watches);
   if (alertView && !selectMode) { const end = html.indexOf("</div>") + 6; html = html.slice(0, end) + alertHtml() + html.slice(end); }
   $("list").innerHTML = html;
+  topScrollbars();
   for (const box of document.querySelectorAll("[data-partial]")) box.indeterminate = true;
   $("selBar").hidden = !selectMode;
   if (selectMode) {
     const dates = new Set([...selected].map(k => k.split("|")[1]));
     $("selCount").textContent = selected.size ? `${selected.size} route${selected.size > 1 ? "s" : ""} on ${dates.size} date${dates.size > 1 ? "s" : ""}` : "Nothing selected";
     for (const b of document.querySelectorAll("#selBar [data-bulk]")) if (b.dataset.bulk !== "done") b.disabled = !selected.size;
+  }
+}
+
+// A scrollbar above each calendar table, level with the date headings, so sideways scrolling
+// doesn't mean going to the bottom of a long table (user's request).
+function topScrollbars() {
+  for (const wrap of document.querySelectorAll(".tablewrap")) {
+    const table = wrap.querySelector("table.grid");
+    if (!table || table.scrollWidth <= wrap.clientWidth) continue;
+    const bar = document.createElement("div");
+    bar.className = "topscroll";
+    bar.innerHTML = `<div style="width:${table.scrollWidth}px"></div>`;
+    wrap.parentNode.insertBefore(bar, wrap);
+    let busy = false;
+    const sync = (from, to) => { if (busy) return; busy = true; to.scrollLeft = from.scrollLeft; busy = false; };
+    bar.addEventListener("scroll", () => sync(bar, wrap));
+    wrap.addEventListener("scroll", () => sync(wrap, bar));
   }
 }
 
