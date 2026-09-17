@@ -3,9 +3,12 @@ import os
 import smtplib
 import urllib.request
 from email.message import EmailMessage
+from email.utils import make_msgid
 
 
-def send_email(subject, body):
+def send_email(subject, body, thread=None, first=False):
+    """thread: emails with the same thread id and subject land in one Gmail conversation.
+    The first email of a thread carries the thread's Message-ID; later ones reply to it."""
     sender = os.environ.get("GMAIL_ADDRESS")
     password = os.environ.get("GMAIL_APP_PASSWORD")
     if not sender or not password:
@@ -15,6 +18,11 @@ def send_email(subject, body):
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = os.environ.get("ALERT_EMAIL_TO") or sender
+    if thread and first:
+        msg["Message-ID"] = f"<{thread}@flight-tracker>"
+    elif thread:
+        msg["Message-ID"] = make_msgid(domain="flight-tracker")
+        msg["In-Reply-To"] = msg["References"] = f"<{thread}@flight-tracker>"
     msg.set_content(body)
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(sender, password)
@@ -38,11 +46,18 @@ def send_push(title, body, click=None):
     urllib.request.urlopen(req, timeout=30).close()
 
 
-def send(title, body, click=None):
-    """click: page the push notification's "Open alert" button opens."""
+def send(title, body, click=None, thread=None):
+    """click: page the push notification's "Open alert" button opens.
+    thread: (id, subject, first) to put the email in a shared conversation; the push keeps
+    `title` and the email body starts with it."""
     for channel in (send_email, send_push):
         try:
-            channel(title, body, click) if channel is send_push else channel(title, body)
+            if channel is send_push:
+                send_push(title, body, click)
+            elif thread:
+                send_email(thread[1], f"{title}\n\n{body}", thread[0], thread[2])
+            else:
+                send_email(title, body)
         except Exception as e:  # one channel failing shouldn't stop the other
             print(f"  {channel.__name__} failed: {e}")
 

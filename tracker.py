@@ -626,7 +626,7 @@ def search(only_new=False):
         if w.get("alert_below"):
             targets[key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))] = float(w["alert_below"])
     no_skip = skiplagged_off_keys(cfg)
-    lines, items, counts = [], [], defaultdict(int)
+    lines, items, counts, price_email_day = [], [], defaultdict(int), None
 
     def item(key, what, tone, price, sub):
         o, d, dep, ret, opts = split_key(key)
@@ -697,8 +697,12 @@ def search(only_new=False):
         title = "; ".join(f"{n} {what}" for what, n in counts.items())
         alert = new_alert("prices", title, items=items)
         alerts_out.append(alert)
-        # Emails keep a link per line; tapping the push opens this alert on the page.
-        notify.send("Flight prices: " + title, "\n".join(lines) + f"\n\nAll fares: {PAGE_URL}", click=alert_link(alert))
+        # Emails keep a link per line; the push's "Open alert" button opens this alert on the page.
+        # Price emails for one day (Eastern) share a Gmail conversation (user's request).
+        day = local_today().isoformat()
+        price_email_day = day
+        notify.send("Flight prices: " + title, "\n".join(lines) + f"\n\nAll fares: {PAGE_URL}", click=alert_link(alert),
+                    thread=(f"prices-{day}", f"Flight prices {nice_date(day)}", state.get("price_email_day") != day))
 
     # If most searches failed, Google is probably blocking us. Say so, but not every hour.
     attempted = done + len(errors)
@@ -713,7 +717,7 @@ def search(only_new=False):
             failure_alert = True
 
     write_json(RESULTS, {
-        "stamp": stamp, "fares": fares, "failure_alert": failure_alert, "health_alert": health_alert,
+        "stamp": stamp, "fares": fares, "price_email_day": price_email_day, "failure_alert": failure_alert, "health_alert": health_alert,
         "empty_streaks": empty_streaks,
         "alerts": alerts_out,
         "last_run": {"at": stamp, "searched": len(fares), "total": len(routes), "searches": attempted,
@@ -945,6 +949,8 @@ def merge():
     save_alerts(res.get("alerts", []))
     drop_past_dates(cfg)
 
+    if res.get("price_email_day"):
+        state["price_email_day"] = res["price_email_day"]  # later price emails that day join its thread
     if res["failure_alert"]:
         state["last_failure_alert"] = stamp
     if res.get("health_alert"):
