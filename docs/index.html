@@ -67,6 +67,7 @@ input[type=number]{width:100px}
 .spark{color:var(--accent)}
 .price.up{color:var(--up)}
 .price.down{color:var(--down)}
+.movedot{display:inline-block;width:.45em;height:.45em;border-radius:50%;background:#7c3aed;margin-right:.3em;vertical-align:.15em}
 .badge{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px}
 .badge.up{color:var(--up);background:color-mix(in srgb,var(--up) 12%,transparent)}
 .badge.down{color:var(--down);background:color-mix(in srgb,var(--down) 12%,transparent)}
@@ -596,7 +597,7 @@ function compareHtml(watches) {
       continue;
     }
     const skip = skipFare(cur, w)?.price;
-    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur)};
+    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur)};
     else if (skip && (!r[w.depart].skip || skip < r[w.depart].skip)) r[w.depart].skip = skip;
     rows.set(`${w.origin}-${w.dest}`, r);
   }
@@ -644,7 +645,7 @@ function compareHtml(watches) {
           if (c.na && c.gone) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="gone" title="${esc(`Had nonstop fares${c.gone.at ? " until " + when(c.gone.at) : ""} (last $${c.gone.price}${c.gone.low ? `, lowest $${c.gone.low}` : ""}); none found on the latest check`)}">GONE</a>${c.gone.price != null ? `<span class="wasprice">$${c.gone.price}</span>` : ""}</td>`;
           if (c.na) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="na" title="Tracked, but no nonstop flights were found on the latest check">N/A</a></td>`;
           const sk = c.skip && c.skip < c.price ? c.skip : null;
-          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc(c.airline)}" class="${c.cls.trim()}">$${c.price}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
+          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc([c.airline, c.tip].filter(Boolean).join(" · "))}" class="${c.cls.trim()}">${c.dot}$${c.price}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
         }).join("")}</tr>`;
       }).join("")}</tbody></table></div>`;
   }
@@ -707,8 +708,28 @@ const CITY = {HNL:"Honolulu",OGG:"Maui",OAK:"Oakland",BUR:"Burbank",LGB:"Long Be
 const skiplaggedLink = w => `https://skiplagged.com/flights/${w.origin}/${w.dest}/${w.depart}${w.return ? "/" + w.return : ""}`;
 // The route's skiplagged fare, only when it beats the cheapest nonstop.
 // Fare color: red if it went up on the latest check, green if it went down, plain if unchanged.
-const moveClass = cur => cur?.prev_price == null || cur.price == null || cur.price === cur.prev_price ? "" : cur.price > cur.prev_price ? " up" : " down";
-const moveTitle = cur => cur?.prev_price == null || cur.price == null ? "" : cur.price === cur.prev_price ? "No change on the latest check" : `${cur.price > cur.prev_price ? "Up" : "Down"} $${Math.abs(cur.price - cur.prev_price)} on the latest check (was $${cur.prev_price})`;
+// Fare colors compare the nonstop fare with 24 hours before the latest check (tracker's `moves`:
+// the point in effect then, and every change since). Routes tracked less than a day compare
+// with their first fare. A purple dot marks a fare that moved more than going straight to now.
+function dayMoves(cur) {
+  const t = cur?.moves;
+  if (!t?.length || cur.price == null) return null;
+  const cutoff = new Date(Date.parse(cur.checked_at) - 864e5).toISOString().slice(0, 19);
+  const base = t[0], moves = t.length - 1;
+  const prices = t.map(p => p[1]).filter(p => p != null);
+  return {base: base[1], moves, prices: t.map(p => p[1]), high: Math.max(...prices), low: Math.min(...prices),
+          full: base[0].slice(0, 19) <= cutoff};
+}
+const moveClass = cur => { const m = dayMoves(cur); return !m || m.base == null || m.base === cur.price ? "" : cur.price > m.base ? " up" : " down"; };
+const moveDot = cur => { const m = dayMoves(cur); return m && m.moves > (m.base !== cur.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
+function moveTitle(cur) {
+  const m = dayMoves(cur);
+  if (!m) return "";
+  const since = m.full ? "24 hours ago" : "when tracking started";
+  const vs = m.base == null ? `No nonstop fare ${since}` : m.base === cur.price ? `Same as ${since} ($${m.base})` : `${cur.price > m.base ? "Up" : "Down"} $${Math.abs(cur.price - m.base)} from ${since} ($${m.base})`;
+  if (!m.moves) return `${vs}. No moves.`;
+  return `${vs}. ${m.prices.map(p => p == null ? "none" : "$" + p).join(" → ")}. Moved ${m.moves} time${m.moves > 1 ? "s" : ""}: high $${m.high}, low $${m.low}.`;
+}
 // Had nonstop fares before, none on the latest check.
 const isGone = cur => cur && cur.price == null && (cur.last_price != null || cur.low != null);
 function goneInfo(key, cur) {
@@ -785,7 +806,7 @@ function render() {
     if (dayFolded) {
       const best = priced[0];
       html += `<div class="card compact"><div class="daysum">${best
-        ? `<span><span class="lbl">Lowest </span><b class="price${moveClass(best.cur)}" style="font-size:18px" title="${esc(moveTitle(best.cur))}">$${best.cur.price}</b></span><b>${esc(best.w.origin)} → ${esc(best.w.dest)}</b>${cheapestShort(best.cur)}${(() => {
+        ? `<span><span class="lbl">Lowest </span><b class="price${moveClass(best.cur)}" style="font-size:18px" title="${esc(moveTitle(best.cur))}">${moveDot(best.cur)}$${best.cur.price}</b></span><b>${esc(best.w.origin)} → ${esc(best.w.dest)}</b>${cheapestShort(best.cur)}${(() => {
           const sk = ws.map(w => ({w, h: skipFare(latest[wKey(w)], w)})).filter(x => x.h).sort((a, b) => a.h.price - b.h.price)[0];
           if (!sk) return "";
           // Always show the date's cheapest skiplagged fare; name its route when it isn't the route above.
@@ -806,7 +827,7 @@ function render() {
 
         html += `<article class="card compact"><div class="cline">
           ${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(k)}" aria-label="Select ${esc(w.origin)} to ${esc(w.dest)}"${selected.has(k) ? " checked" : ""}>` : `<button class="fold" data-fold="${esc(k)}" aria-expanded="false" title="Show details">▸</button>`}<span class="route">${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</span>
-          <span class="rest" title="${esc(cheapestFlights(cur))}">${tags}${cheapestShort(cur).replace('class="oneline"', 'class="flights"')}</span>${skipFare(cur, w) ? `<span class="skip">skiplagged $${skipFare(cur, w).price}</span>` : ""}${oneWays(cur) ? `<span class="skip ow">2 one-ways $${oneWays(cur).total}</span>` : ""}<span class="price${moveClass(cur)}" title="${esc(moveTitle(cur))}">$${cur.price}</span>
+          <span class="rest" title="${esc(cheapestFlights(cur))}">${tags}${cheapestShort(cur).replace('class="oneline"', 'class="flights"')}</span>${skipFare(cur, w) ? `<span class="skip">skiplagged $${skipFare(cur, w).price}</span>` : ""}${oneWays(cur) ? `<span class="skip ow">2 one-ways $${oneWays(cur).total}</span>` : ""}<span class="price${moveClass(cur)}" title="${esc(moveTitle(cur))}">${moveDot(cur)}$${cur.price}</span>
         </div></article>`;
         continue;
       }
@@ -839,7 +860,7 @@ function render() {
           <div><div class="route"><button class="fold" data-fold="${esc(k)}" aria-expanded="true" title="Show just the lowest fare">▾</button>${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</div>
             ${tags ? `<div class="tags">${tags}</div>` : ""}
             <div class="muted small">checked ${esc(ago(cur.checked_at))} · <a class="gf" href="${googleLink(w)}" target="_blank" rel="noopener">Google Flights ↗</a> · <a class="gf" href="${skiplaggedLink(w)}" target="_blank" rel="noopener">Skiplagged ↗</a></div></div>
-          <div class="right"><div class="price${moveClass(cur)}" title="${esc(moveTitle(cur))}">$${cur.price}</div><div class="muted small">${esc(cur.airline)}</div></div>
+          <div class="right"><div class="price${moveClass(cur)}" title="${esc(moveTitle(cur))}">${moveDot(cur)}$${cur.price}</div><div class="muted small">${esc(cur.airline)}</div></div>
         </div>
         ${(() => {
           const ow = oneWays(cur);

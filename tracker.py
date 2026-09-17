@@ -752,6 +752,18 @@ def failed():
     return 0
 
 
+def day_moves(stamp, price, prev):
+    """The nonstop fare's changes over the last 24 hours, as [time, price] points, plus the
+    point in effect 24 hours ago. The page colors fares by it and marks fares that moved."""
+    trail = list((prev or {}).get("moves") or
+                 ([[prev["checked_at"], prev.get("price")]] if (prev or {}).get("checked_at") else []))
+    if not trail or trail[-1][1] != price:
+        trail.append([stamp, price])
+    cutoff = (datetime.fromisoformat(stamp) - timedelta(hours=24)).isoformat(timespec="seconds")
+    before = [i for i, (at, _) in enumerate(trail) if at <= cutoff]
+    return trail[before[-1]:] if before else trail
+
+
 def entry(stamp, f, prev=None):
     airlines = f["airlines"]
     cheapest = min(airlines, key=airlines.get) if airlines else ""
@@ -767,6 +779,7 @@ def entry(stamp, f, prev=None):
                 e[k] = prev[k]
         if (prev or {}).get("price") is not None and "last_price" not in e:
             e["last_price"], e["last_seen_at"] = prev["price"], prev.get("checked_at")
+    e["moves"] = day_moves(stamp, e["price"], prev)
     lows = [p for p in ((prev or {}).get("low"), (prev or {}).get("price"), e["price"]) if p]
     if lows:
         e["low"] = min(lows)  # lowest fare seen since tracking started
