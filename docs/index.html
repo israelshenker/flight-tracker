@@ -805,7 +805,7 @@ function render() {
     html += `<div class="group"><h3>${selectMode
       ? `<input type="checkbox" class="sel" data-sel-day="${esc(g)}" aria-label="Select all routes on ${esc(title)}"${daySel === dayKeys.length ? " checked" : ""}${daySel && daySel < dayKeys.length ? ' data-partial="1"' : ""}>`
       : `<button class="fold" data-fold-day="${esc(g)}" aria-expanded="${!dayFolded}" title="${dayFolded ? "Show" : "Hide"} this date's routes">${dayFolded ? "▸" : "▾"}</button>`}${esc(title)} <span class="muted small">· ${ws.length} route${ws.length > 1 ? "s" : ""}, cheapest first</span></h3>
-      <span style="display:flex;gap:12px;flex-wrap:wrap">${!dayFolded && priced.length > 1 ? `<button class="link small" data-fold-all="${esc(g)}">${allRoutesFolded ? "Expand" : "Collapse"} all routes</button>` : ""}${g.endsWith("|") && config.skiplagged !== false ? `<button class="link small" data-skip-date="${esc(g.split("|")[0])}" title="${skipOff(g.split("|")[0]) ? "Start looking for skiplagged fares on this date" : "Stop looking for skiplagged fares on this date, e.g. if you need a checked bag"}">Skiplagged: ${skipOff(g.split("|")[0]) ? "off" : "on"}</button>` : ""}<button class="link small" data-stop-group="${esc(g)}">Stop all for this date</button></span></div>`;
+      <span style="display:flex;gap:12px;flex-wrap:wrap">${!dayFolded && priced.length > 1 ? `<button class="link small" data-fold-all="${esc(g)}">${allRoutesFolded ? "Expand" : "Collapse"} all routes</button>` : ""}${g.endsWith("|") && config.skiplagged !== false ? `<button class="link small" data-skip-date="${esc(g.split("|")[0])}" title="${skipOff(g.split("|")[0]) ? "Start looking for skiplagged fares on this date" : "Stop looking for skiplagged fares on this date, e.g. if you need a checked bag"}">Skiplagged: ${skipOff(g.split("|")[0]) ? "off" : "on"}</button>` : ""}<button class="link small" data-edit-day="${esc(g)}" title="Change bags, times, passengers or the price alert for every route on this date">Edit this date</button><button class="link small" data-stop-group="${esc(g)}">Stop all for this date</button></span></div>`;
     if (dayFolded) {
       const best = priced[0];
       html += `<div class="card compact"><div class="daysum">${best
@@ -921,16 +921,23 @@ function render() {
 
 // A scrollbar above each calendar table, level with the date headings, so sideways scrolling
 // doesn't mean going to the bottom of a long table (user's request).
+const gridScroll = [];  // how far each calendar table was scrolled sideways, kept across renders
 function topScrollbars() {
+  let i = -1;
   for (const wrap of document.querySelectorAll(".tablewrap")) {
     const table = wrap.querySelector("table.grid");
-    if (!table || wrap.scrollWidth <= wrap.clientWidth) continue;
+    if (!table) continue;
+    const n = ++i;
+    wrap.scrollLeft = gridScroll[n] || 0;  // sorting re-draws the table; stay where the user was
+    wrap.addEventListener("scroll", () => { gridScroll[n] = wrap.scrollLeft; });
+    if (wrap.scrollWidth <= wrap.clientWidth) continue;
     const bar = document.createElement("div");
     bar.className = "topscroll";
     bar.innerHTML = `<div style="width:${wrap.scrollWidth}px"></div>`;
     wrap.parentNode.insertBefore(bar, wrap);
     let busy = false;
     const sync = (from, to) => { if (busy) return; busy = true; to.scrollLeft = from.scrollLeft; busy = false; };
+    bar.scrollLeft = wrap.scrollLeft;
     bar.addEventListener("scroll", () => sync(bar, wrap));
     wrap.addEventListener("scroll", () => sync(wrap, bar));
   }
@@ -1410,6 +1417,14 @@ document.addEventListener("click", e => {
     const [dep, ret] = b.dataset.stopNone.split("|");
     stopKeys(tracked().filter(w => w.depart === dep && (w.return || "") === ret && latest[wKey(w)] && latest[wKey(w)].price == null && !isGone(latest[wKey(w)])).map(wKey),
       `${niceDate(dep)} that have no nonstop flights`);
+  }
+  else if (b.dataset.editDay) {  // opens the edit panel for the whole date (bags, times, passengers, alert)
+    const [dep, ret] = b.dataset.editDay.split("|");
+    const first = tracked().find(w => w.depart === dep && (w.return || "") === ret);
+    if (first) {
+      openEdit(wKey(first));
+      if (!$("editAll").closest(".row").hidden) $("editAll").checked = true;
+    }
   }
   else if (b.dataset.stopGroup) {
     const [dep, ret] = b.dataset.stopGroup.split("|");
