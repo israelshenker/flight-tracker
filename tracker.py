@@ -768,31 +768,68 @@ def last_day(trail, stamp):
     return trail[before[-1]:] if before else trail
 
 
-def moves_from_history(latest):
-    """One-time fill of `moves` from the change log, so routes tracked before `moves` existed
-    get their real last 24 hours. The log has a row when an airline's fare changes (not when
-    one drops out while others remain), so the replay ends on the current fare to stay correct."""
+def utc(at):
+    """Change-log times and the page's history_from times in one comparable form."""
+    return datetime.fromisoformat(at.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def log_trails(rows):
+    """Replay the change log: each route key's cheapest nonstop over time, as [time, price]
+    points where it changed. A row with an airline and no price = that airline dropped out;
+    no airline and no price = no nonstops at all."""
     fares, trails = defaultdict(dict), defaultdict(list)
-    for row in csv.DictReader(io.StringIO(vault.read_text(HISTORY) or "")):
+    for row in rows:
         k = key_of(row["origin"], row["destination"], row["depart"], row["return"], row["options"])
         if not row["price"]:
-            fares[k].clear()
+            if row["airline"]:
+                fares[k].pop(row["airline"], None)
+            else:
+                fares[k].clear()
         else:
             fares[k][row["airline"]] = int(float(row["price"]))
         cheapest = min(fares[k].values()) if fares[k] else None
-        t = trails[k]
-        if t and t[-1][0] == row["checked_at"]:
+        at, t = utc(row["checked_at"]), trails[k]
+        if t and t[-1][0] == at:
             t[-1][1] = cheapest  # several airlines logged in the same check
             if len(t) > 1 and t[-2][1] == cheapest:
                 t.pop()
         elif not t or t[-1][1] != cheapest:
-            t.append([row["checked_at"], cheapest])
-    for k, e in latest.items():
-        if k in trails and e.get("checked_at"):
-            t = [p for p in trails[k] if p[0] <= e["checked_at"]]
-            if not t or t[-1][1] != e.get("price"):
-                t.append([e["checked_at"], e.get("price")])
-            e["moves"] = last_day(t, e["checked_at"])
+            t.append([at, cheapest])
+    return trails
+
+
+def watch_trail(w, trails):
+    """A route's fare points across its settings: when bags/times changed and the page kept
+    the history (history_from), the old settings' points count until the change."""
+    o, d, dep, ret = w["origin"], w["dest"], w["depart"], w.get("return", "")
+    out, start = [], ""
+    for h in w.get("history_from", []):
+        until = utc(h["until"])
+        out += [p for p in trails.get(key_of(o, d, dep, ret, h.get("opts", "")), []) if start <= p[0] < until]
+        start = until
+    out += [p for p in trails.get(key_of(o, d, dep, ret, options_code(w)), []) if p[0] >= start]
+    return out
+
+
+def moves_from_log(e, trail):
+    """`moves` for an entry from its log points, ending on the entry's current fare."""
+    t = [list(p) for p in trail if p[0] <= e["checked_at"]]
+    if not t or t[-1][1] != e.get("price"):
+        t.append([e["checked_at"], e.get("price")])
+    return last_day(t, e["checked_at"])
+
+
+def read_log():
+    return list(csv.DictReader(io.StringIO(vault.read_text(HISTORY) or "")))
+
+
+def moves_from_history(latest, cfg):
+    """One-time rebuild of `moves` from the change log (including earlier bag/time settings)."""
+    trails = log_trails(read_log())
+    for w in cfg.get("watches", []):
+        e = latest.get(key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)))
+        if e and e.get("checked_at"):
+            e["moves"] = moves_from_log(e, watch_trail(w, trails))
     m = [e["moves"] for e in latest.values() if e.get("moves") and e.get("price") is not None]
     print(f"  24-hour moves filled from the change log: {len(m)} priced routes, "
           f"{sum(t[0][1] is not None and t[0][1] != t[-1][1] for t in m)} changed, "
@@ -870,7 +907,9 @@ def merge():
     state = read_json(STATE, {})
     stamp = res["stamp"]
 
-    rows = []
+    rows, carried = [], None
+    history_from = {key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)): w
+                    for w in cfg.get("watches", []) if w.get("history_from")}
     for key, f in res["fares"].items():
         prev = latest.get(key)
         if prev and prev.get("checked_at", "") > stamp:
@@ -881,12 +920,18 @@ def merge():
         for airline, price in sorted(f["airlines"].items()):
             if before.get(airline) != price:
                 rows.append([stamp, origin, dest, depart, ret, price, airline, opts])
+        if f["airlines"]:  # an airline that dropped out while others still fly: logged with no price
+            for airline in sorted(set(before) - set(f["airlines"])):
+                rows.append([stamp, origin, dest, depart, ret, "", airline, opts])
         if not f["airlines"] and (prev is None or before):
             rows.append([stamp, origin, dest, depart, ret, "", "", opts])
         latest[key] = entry(stamp, f, prev)
-    if not state.get("moves_from_history"):
-        moves_from_history(latest)
-        state["moves_from_history"] = stamp
+        if prev is None and history_from.get(key):  # bags/times changed, history kept
+            carried = carried or log_trails(read_log())
+            latest[key]["moves"] = moves_from_log(latest[key], watch_trail(history_from[key], carried))
+    if state.get("moves_from_history") != 2:
+        moves_from_history(latest, cfg)
+        state["moves_from_history"] = 2
     for key, streak in res.get("empty_streaks", {}).items():
         if key in latest and latest[key].get("checked_at", "") <= stamp:
             latest[key]["empty_streak"] = streak  # entry() above starts every new result at 0

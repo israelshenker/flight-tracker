@@ -707,10 +707,9 @@ function cheapestShort(cur) {
 const CITY = {HNL:"Honolulu",OGG:"Maui",OAK:"Oakland",BUR:"Burbank",LGB:"Long Beach",ONT:"Ontario, CA",ABQ:"Albuquerque",TUS:"Tucson",ELP:"El Paso",BOI:"Boise",DAL:"Dallas Love Field",AVL:"Asheville",ILM:"Wilmington, NC",CHA:"Chattanooga",CHO:"Charlottesville",ROA:"Roanoke",DSM:"Des Moines",MSN:"Madison",OKC:"Oklahoma City",TUL:"Tulsa",LIT:"Little Rock",XNA:"Northwest Arkansas",ICT:"Wichita",BQN:"Aguadilla",PSE:"Ponce",ACK:"Nantucket",MVY:"Martha's Vineyard",PIE:"St. Pete–Clearwater",PGD:"Punta Gorda",VPS:"Destin–Fort Walton Beach",ECP:"Panama City Beach",GNV:"Gainesville",DAB:"Daytona Beach",LHR:"London Heathrow",DUB:"Dublin",KIN:"Kingston",POS:"Port of Spain",GND:"Grenada",ANU:"Antigua",BZE:"Belize City",RTB:"Roatán",SAP:"San Pedro Sula",MGA:"Managua",CZM:"Cozumel",SJD:"Los Cabos",SCL:"Santiago",EZE:"Buenos Aires",UIO:"Quito",GYE:"Guayaquil",CHS:"Charleston",SAV:"Savannah",MYR:"Myrtle Beach",GSP:"Greenville–Spartanburg",CAE:"Columbia, SC",JAX:"Jacksonville",DAY:"Dayton",OMA:"Omaha",MEM:"Memphis",BHM:"Birmingham",TYS:"Knoxville",SAT:"San Antonio",PDX:"Portland, OR",SJC:"San Jose, CA",SNA:"Orange County",SMF:"Sacramento",BGR:"Bangor",ITH:"Ithaca",MDT:"Harrisburg",ABE:"Allentown",CLT:"Charlotte",GRU:"São Paulo",MHT:"Manchester",MDW:"Chicago Midway",CMH:"Columbus",CVG:"Cincinnati",IND:"Indianapolis",GRR:"Grand Rapids",MKE:"Milwaukee",MSP:"Minneapolis",STL:"St. Louis",MCI:"Kansas City",DEN:"Denver",GSO:"Greensboro",RIC:"Richmond",ORF:"Norfolk",IAD:"Washington Dulles",BWI:"Baltimore",BNA:"Nashville",SDF:"Louisville",AUS:"Austin",PHX:"Phoenix",LAS:"Las Vegas",LAX:"Los Angeles",SFO:"San Francisco",SEA:"Seattle",SAN:"San Diego",SLC:"Salt Lake City",SRQ:"Sarasota",PNS:"Pensacola",TLH:"Tallahassee",CHS:"Charleston",HOU:"Houston Hobby",STX:"St. Croix",YHZ:"Halifax",YQB:"Quebec City",AUA:"Aruba",CUR:"Curacao",SXM:"St. Maarten",BGI:"Barbados",PTY:"Panama City",SJO:"San Jose, Costa Rica",BOG:"Bogota",MDE:"Medellin",GUA:"Guatemala City",SAL:"San Salvador",LIM:"Lima",HAV:"Havana",PLS:"Providenciales",UVF:"St. Lucia",BOS:"Boston",BUF:"Buffalo",ROC:"Rochester",SYR:"Syracuse",ALB:"Albany",BTV:"Burlington",PWM:"Portland, ME",BDL:"Hartford",PVD:"Providence",PIT:"Pittsburgh",CLE:"Cleveland",DTW:"Detroit",ORD:"Chicago",RDU:"Raleigh",CLT:"Charlotte",DCA:"Washington",TPA:"Tampa",JAX:"Jacksonville",RSW:"Fort Myers",SAV:"Savannah",EYW:"Key West",MCO:"Orlando",MSY:"New Orleans",SJU:"San Juan",STT:"St. Thomas",IAH:"Houston",DFW:"Dallas",ATL:"Atlanta",YYZ:"Toronto",YUL:"Montreal",YOW:"Ottawa",NAS:"Nassau",CUN:"Cancun",MBJ:"Montego Bay",SDQ:"Santo Domingo",PUJ:"Punta Cana",GCM:"Grand Cayman"};
 const skiplaggedLink = w => `https://skiplagged.com/flights/${w.origin}/${w.dest}/${w.depart}${w.return ? "/" + w.return : ""}`;
 // The route's skiplagged fare, only when it beats the cheapest nonstop.
-// Fare color: red if it went up on the latest check, green if it went down, plain if unchanged.
 // Fare colors compare the nonstop fare with 24 hours before the latest check (tracker's `moves`:
 // the point in effect then, and every change since). Routes tracked less than a day compare
-// with their first fare. A purple dot marks a fare that moved more than going straight to now.
+// with their first check and say so. A purple dot marks a fare that moved more than going straight to now.
 function dayMoves(cur) {
   const t = cur?.moves;
   if (!t?.length || cur.price == null) return null;
@@ -718,15 +717,22 @@ function dayMoves(cur) {
   const base = t[0], moves = t.length - 1;
   const prices = t.map(p => p[1]).filter(p => p != null);
   return {base: base[1], moves, prices: t.map(p => p[1]), high: Math.max(...prices), low: Math.min(...prices),
-          full: base[0].slice(0, 19) <= cutoff};
+          full: base[0].slice(0, 19) <= cutoff, hours: Math.max(1, Math.round((Date.parse(cur.checked_at) - Date.parse(base[0])) / 36e5))};
 }
 const moveClass = cur => { const m = dayMoves(cur); return !m || m.base == null || m.base === cur.price ? "" : cur.price > m.base ? " up" : " down"; };
 const moveDot = cur => { const m = dayMoves(cur); return m && m.moves > (m.base !== cur.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
+function dayBadge(cur) {
+  const m = dayMoves(cur);
+  if (!m || m.base == null || m.base === cur.price) return "";
+  const up = cur.price > m.base;
+  return `<span class="badge ${up ? "up" : "down"}" title="${esc(moveTitle(cur))}">${m.full ? "24 h" : `${m.hours} h`}: ${up ? "▲" : "▼"} $${Math.abs(cur.price - m.base)}</span>`;
+}
 function moveTitle(cur) {
   const m = dayMoves(cur);
   if (!m) return "";
-  const since = m.full ? "24 hours ago" : "when tracking started";
-  const vs = m.base == null ? `No nonstop fare ${since}` : m.base === cur.price ? `Same as ${since} ($${m.base})` : `${cur.price > m.base ? "Up" : "Down"} $${Math.abs(cur.price - m.base)} from ${since} ($${m.base})`;
+  const since = m.full ? "24 hours ago" : "the first check";
+  let vs = m.base == null ? `No nonstop fare ${since}` : m.base === cur.price ? `Same as ${since} ($${m.base})` : `${cur.price > m.base ? "Up" : "Down"} $${Math.abs(cur.price - m.base)} from ${since} ($${m.base})`;
+  if (!m.full) vs = `Tracked ${m.hours} hour${m.hours > 1 ? "s" : ""}: ${vs[0].toLowerCase()}${vs.slice(1)}`;
   if (!m.moves) return `${vs}. No moves.`;
   return `${vs}. ${m.prices.map(p => p == null ? "none" : "$" + p).join(" → ")}. Moved ${m.moves} time${m.moves > 1 ? "s" : ""}: high $${m.high}, low $${m.low}.`;
 }
@@ -836,16 +842,21 @@ function render() {
       let lastAt = null;
       for (const r of routeLog(w, log)) {
         if (r.marker) { for (const a in fares) delete fares[a]; changes.push(r); continue; }
-        if (r.airline) fares[r.airline] = r.price; else for (const a in fares) delete fares[a];
+        if (r.airline && r.price != null) fares[r.airline] = r.price;
+        else if (r.airline) delete fares[r.airline];  // that airline dropped out
+        else for (const a in fares) delete fares[a];
         if (r.at !== lastAt) { lows.push(null); lastAt = r.at; }
         const vals = Object.values(fares);
         lows[lows.length - 1] = vals.length ? Math.min(...vals) : null;
         changes.push(r);
       }
       const seen = lows.filter(p => p != null);
-      const first = seen[0];
-      const badge = first != null && cur.price !== first
-        ? `<span class="badge ${cur.price > first ? "up" : "down"}">${cur.price > first ? "▲" : "▼"} $${Math.abs(cur.price - first)} since first check</span>` : "";
+      const first = seen[0], firstAt = changes.find(r => !r.marker && r.price != null)?.at;
+      // Two periods, labeled: the last 24 hours (matches the price color) and since tracking began.
+      // A route tracked under a day shows only the first; both would be the same change.
+      const began = first != null && cur.price !== first && dayMoves(cur)?.full !== false
+        ? `<span class="badge ${cur.price > first ? "up" : "down"}">Since tracking began${firstAt ? " " + esc(new Date(firstAt).toLocaleDateString("en-US", {timeZone: "America/New_York", month: "short", day: "numeric"})) : ""}: ${cur.price > first ? "▲" : "▼"} $${Math.abs(cur.price - first)}</span>` : "";
+      const badge = dayBadge(cur) + began;
       const lowHigh = seen.length ? `Low $${Math.min(...seen, cur.price)} · High $${Math.max(...seen, cur.price)}` : "";
       const airlines = Object.entries(cur.airlines || {}).sort((a, b) => a[1] - b[1])
         .map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td><td class="times">${esc((cur.times?.[a] || []).map(timeLabel).join(", "))}</td></tr>`).join("");
@@ -854,7 +865,7 @@ function render() {
         .map(t => `<span class="tag${t.startsWith("Alert") && cur.price < target ? " hit" : ""}">${esc(t)}</span>`).join("");
       const rows = changes.slice().reverse().map(r => r.marker
         ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed${r.marker ? ` (was: ${esc(r.marker)})` : ""}</i></td></tr>`
-        : `<tr><td>${esc(when(r.at))}</td><td>${r.airline ? esc(r.airline) : "—"}</td><td class="num">${r.price == null ? "no nonstops" : "$" + r.price}</td></tr>`).join("");
+        : `<tr><td>${esc(when(r.at))}</td><td>${r.airline ? esc(r.airline) : "—"}</td><td class="num">${r.price != null ? "$" + r.price : r.airline ? "no longer offered" : "no nonstops"}</td></tr>`).join("");
       html += `<article class="card">
         <div class="top">
           <div><div class="route"><button class="fold" data-fold="${esc(k)}" aria-expanded="true" title="Show just the lowest fare">▾</button>${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</div>
