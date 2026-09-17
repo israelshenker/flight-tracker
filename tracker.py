@@ -759,9 +759,40 @@ def day_moves(stamp, price, prev):
                  ([[prev["checked_at"], prev.get("price")]] if (prev or {}).get("checked_at") else []))
     if not trail or trail[-1][1] != price:
         trail.append([stamp, price])
+    return last_day(trail, stamp)
+
+
+def last_day(trail, stamp):
     cutoff = (datetime.fromisoformat(stamp) - timedelta(hours=24)).isoformat(timespec="seconds")
     before = [i for i, (at, _) in enumerate(trail) if at <= cutoff]
     return trail[before[-1]:] if before else trail
+
+
+def moves_from_history(latest):
+    """One-time fill of `moves` from the change log, so routes tracked before `moves` existed
+    get their real last 24 hours. The log has a row when an airline's fare changes (not when
+    one drops out while others remain), so the replay ends on the current fare to stay correct."""
+    fares, trails = defaultdict(dict), defaultdict(list)
+    for row in csv.DictReader(io.StringIO(vault.read_text(HISTORY) or "")):
+        k = key_of(row["origin"], row["destination"], row["depart"], row["return"], row["options"])
+        if not row["price"]:
+            fares[k].clear()
+        else:
+            fares[k][row["airline"]] = int(float(row["price"]))
+        cheapest = min(fares[k].values()) if fares[k] else None
+        t = trails[k]
+        if t and t[-1][0] == row["checked_at"]:
+            t[-1][1] = cheapest  # several airlines logged in the same check
+            if len(t) > 1 and t[-2][1] == cheapest:
+                t.pop()
+        elif not t or t[-1][1] != cheapest:
+            t.append([row["checked_at"], cheapest])
+    for k, e in latest.items():
+        if k in trails and e.get("checked_at"):
+            t = [p for p in trails[k] if p[0] <= e["checked_at"]]
+            if not t or t[-1][1] != e.get("price"):
+                t.append([e["checked_at"], e.get("price")])
+            e["moves"] = last_day(t, e["checked_at"])
 
 
 def entry(stamp, f, prev=None):
@@ -849,6 +880,9 @@ def merge():
         if not f["airlines"] and (prev is None or before):
             rows.append([stamp, origin, dest, depart, ret, "", "", opts])
         latest[key] = entry(stamp, f, prev)
+    if not state.get("moves_from_history"):
+        moves_from_history(latest)
+        state["moves_from_history"] = stamp
     for key, streak in res.get("empty_streaks", {}).items():
         if key in latest and latest[key].get("checked_at", "") <= stamp:
             latest[key]["empty_streak"] = streak  # entry() above starts every new result at 0
