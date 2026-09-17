@@ -201,17 +201,16 @@ td.times{color:var(--muted);font-size:13px}
         <label><input type="radio" name="trip" value="round_trip">Round trip</label>
       </div>
       <div class="seg">
-        <label><input type="radio" name="dir" value="FL_TO_NY" checked>Side 1 → Side 2</label>
-        <label><input type="radio" name="dir" value="NY_TO_FL">Side 2 → Side 1</label>
+        <label><input type="radio" name="dir" value="FL_TO_NY" checked>From → To</label>
         <label><input type="radio" name="dir" value="BOTH">Both ways</label>
       </div>
     </div>
-    <div class="small muted"><b>Side 1</b> · South Florida, plus any airports you add</div>
+    <div class="small muted"><b>From</b></div>
     <div class="chips" id="flChips"></div>
-    <div class="inline small" style="margin:-4px 0 12px"><input type="text" id="flCustom" placeholder="Other airport codes, e.g. TPA, JAX" maxlength="40"><button id="flAddCode">Add</button></div>
-    <div class="small muted"><b>Side 2</b> · New York area, plus any airports you add</div>
+    <div class="inline small" style="margin:-4px 0 12px"><input type="text" id="flCustom" placeholder="Other airport codes, e.g. TPA, BOS" maxlength="40"><button id="flAddCode">Add</button></div>
+    <div class="small muted"><b>To</b></div>
     <div class="chips" id="nyChips"></div>
-    <div class="inline small" style="margin:-4px 0 12px"><input type="text" id="nyCustom" placeholder="Other airport codes, e.g. BOS, DCA" maxlength="40"><button id="nyAddCode">Add</button></div>
+    <div class="inline small" style="margin:-4px 0 12px"><input type="text" id="nyCustom" placeholder="Other airport codes, e.g. TPA, BOS" maxlength="40"><button id="nyAddCode">Add</button></div>
     <span class="msg" id="codeMsg"></span>
     <div class="row">
       <label class="f">Depart on / from <input type="date" id="depFrom"></label>
@@ -996,11 +995,13 @@ $("btnDisconnect").hidden = !token;
 // ---------- add ----------
 const checkedVals = name => [...document.querySelectorAll(`input[name=${name}]:checked`)].map(i => i.value);
 let customCodes = {fl: [], ny: []};  // extra airports, saved in config.json as custom_airports
+// "fl" = the From list, "ny" = the To list (names kept from the old Side 1 / Side 2). Both lists
+// offer every airport, the list's usual ones first, so any direction can be picked.
 function renderChips() {
   for (const k of ["fl", "ny"]) {
-    const picked = new Set(checkedVals(k));
-    const presets = AIRPORTS[k].map(([c, n]) => `<label class="chip"><input type="checkbox" name="${k}" value="${c}"${picked.has(c) ? " checked" : ""}><b>${c}</b> <small>${n}</small></label>`);
-    const extra = customCodes[k].map(c => `<label class="chip"><input type="checkbox" name="${k}" value="${c}"${picked.has(c) ? " checked" : ""}><b>${c}</b> <button class="link small" data-remove-code="${k}:${c}" title="Remove from this list">×</button></label>`);
+    const picked = new Set(checkedVals(k)), other = k === "fl" ? "ny" : "fl";
+    const presets = [...AIRPORTS[k], ...AIRPORTS[other]].map(([c, n]) => `<label class="chip"><input type="checkbox" name="${k}" value="${c}"${picked.has(c) ? " checked" : ""}><b>${c}</b> <small>${n}</small></label>`);
+    const extra = [k, other].flatMap(src => customCodes[src].map(c => `<label class="chip"><input type="checkbox" name="${k}" value="${c}"${picked.has(c) ? " checked" : ""}><b>${c}</b> <button class="link small" data-remove-code="${src}:${c}" title="Remove from the lists">×</button></label>`));
     $(k + "Chips").innerHTML = [...presets, ...extra].join("");
   }
 }
@@ -1116,15 +1117,15 @@ $("btnSaveEdit").onclick = () => {
 function newWatches(includeTracked = false) {
   const rt = checkedVals("trip")[0] === "round_trip", dir = checkedVals("dir")[0];
   const fl = checkedVals("fl"), ny = checkedVals("ny"), pairs = [];
-  if (dir !== "NY_TO_FL") for (const o of fl) for (const d of ny) pairs.push([o, d]);
-  if (dir !== "FL_TO_NY") for (const o of ny) for (const d of fl) pairs.push([o, d]);
+  for (const o of fl) for (const d of ny) pairs.push([o, d]);
+  if (dir === "BOTH") for (const o of ny) for (const d of fl) pairs.push([o, d]);
   const deps = days($("depFrom").value, $("depTo").value);
   const rets = rt ? days($("retFrom").value, $("retTo").value) : [""];
-  const today = todayEastern(), have = new Set(tracked().map(wKey)), out = [];
+  const today = todayEastern(), have = new Set(tracked().map(wKey)), seen = new Set(), out = [];
   for (const [o, d] of pairs) for (const dep of deps) for (const ret of rets) {
     const w = {origin: o, dest: d, depart: dep, return: ret, ...chosenOptions()};
     if (+$("optBelow").value > 0) w.alert_below = Math.round(+$("optBelow").value);
-    if (o !== d && dep >= today && (!ret || ret >= dep) && (includeTracked || !have.has(wKey(w)))) out.push(w);
+    if (o !== d && dep >= today && (!ret || ret >= dep) && (includeTracked || !have.has(wKey(w))) && !seen.has(wKey(w))) { out.push(w); seen.add(wKey(w)); }
   }
   return out;
 }
@@ -1136,7 +1137,7 @@ function updateAddCount() {
   $("addCount").innerHTML = n || already
     ? [n ? `Adds <b>${n}</b> route/date${n > 1 ? "s" : ""} · ${total} total` : "", already ? `sets the price alert on ${already} already tracked` : ""].filter(Boolean).join(" · ")
       + ""
-    : `<span class="muted">Pick an airport on each side and a date</span>`;
+    : `<span class="muted">Pick a From airport, a To airport and a date</span>`;
 }
 $("addPanel").addEventListener("input", updateAddCount);
 $("addPanel").addEventListener("change", updateAddCount);
@@ -1147,7 +1148,7 @@ $("btnDoAdd").onclick = () => {
   const below = +$("optBelow").value > 0 ? Math.round(+$("optBelow").value) : null;
   // Routes already tracked just get the new price alert, if one was entered.
   const updates = below ? all.filter(w => !add.some(a => wKey(a) === wKey(w))) : [];
-  if (!add.length && !updates.length) { $("addMsg").className = "msg bad"; $("addMsg").textContent = "Pick at least one airport on each side and a departure date (and a return date for round trips)."; return; }
+  if (!add.length && !updates.length) { $("addMsg").className = "msg bad"; $("addMsg").textContent = "Pick at least one From airport, one To airport and a departure date (and a return date for round trips)."; return; }
   if (!needToken(() => { show("addPanel"); $("btnDoAdd").click(); })) return;
   save(async () => {
     await updateConfig(c => {
