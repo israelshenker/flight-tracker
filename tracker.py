@@ -793,6 +793,10 @@ def moves_from_history(latest):
             if not t or t[-1][1] != e.get("price"):
                 t.append([e["checked_at"], e.get("price")])
             e["moves"] = last_day(t, e["checked_at"])
+    m = [e["moves"] for e in latest.values() if e.get("moves") and e.get("price") is not None]
+    print(f"  24-hour moves filled from the change log: {len(m)} priced routes, "
+          f"{sum(t[0][1] is not None and t[0][1] != t[-1][1] for t in m)} changed, "
+          f"{sum(len(t) > 1 for t in m)} moved")
 
 
 def entry(stamp, f, prev=None):
