@@ -46,14 +46,15 @@ def send_push(title, body, click=None):
     urllib.request.urlopen(req, timeout=30).close()
 
 
-def send(title, body, click=None, thread=None):
+def send(title, body, click=None, thread=None, push_body=None):
     """click: page the push notification's "Open alert" button opens.
     thread: (id, subject, first) to put the email in a shared conversation; the push keeps
-    `title` and the email body starts with it."""
+    `title` and the email body starts with it. push_body: different text for the push (the
+    price alerts put the change first there); defaults to body."""
     for channel in (send_email, send_push):
         try:
             if channel is send_push:
-                send_push(title, body, click)
+                send_push(title, push_body or body, click)
             elif thread:
                 send_email(thread[1], f"{title}\n\n{body}", thread[0], thread[2])
             else:

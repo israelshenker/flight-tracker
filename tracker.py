@@ -634,7 +634,9 @@ def search(only_new=False):
         if w.get("alert_below"):
             targets[key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))] = float(w["alert_below"])
     no_skip = skiplagged_off_keys(cfg)
-    lines, items, counts, price_email_day = [], [], defaultdict(int), None
+    # Emails: date first (user's order: date, route, price, change). Pushes: the change first
+    # (user's request), then date, route and price.
+    lines, push_lines, items, counts, price_email_day = [], [], [], defaultdict(int), None
 
     def item(key, what, tone, price, sub):
         o, d, dep, ret, opts = split_key(key)
@@ -672,6 +674,7 @@ def search(only_new=False):
             if tags:
                 was = f" (was ${prev})" if prev else ""
                 lines.append(f"{describe(key)}: ${new} · {', '.join(tags)}{was} · {detail}{link}")
+                push_lines.append(f"{', '.join(tags)} · {describe(key)}: ${new}{was} · {detail}")
                 tone = "up" if tags == [t for t in tags if t.startswith("UP")] else "down"
                 item(key, " · ".join(tags), tone, new, detail + (f" · was ${prev}" if prev else ""))
         ow = f.get("one_ways")
@@ -681,6 +684,9 @@ def search(only_new=False):
                 lines.append(f"{describe(key)}: ${ow['total']} · TWO ONE-WAYS, ${new - ow['total']} under the round trip · "
                              f"{ow['out']['airline']} out at {time_label(ow['out']['departs'])} + "
                              f"{ow['back']['airline']} back at {time_label(ow['back']['departs'])}{link}")
+                push_lines.append(f"TWO ONE-WAYS, ${new - ow['total']} under the round trip · {describe(key)}: ${ow['total']} · "
+                                  f"{ow['out']['airline']} out at {time_label(ow['out']['departs'])} + "
+                                  f"{ow['back']['airline']} back at {time_label(ow['back']['departs'])}")
                 item(key, f"TWO ONE-WAYS ${ow['total']}", "down", ow["total"],
                      f"{ow['out']['airline']} out {time_label(ow['out']['departs'])} + {ow['back']['airline']} back "
                      f"{time_label(ow['back']['departs'])} · ${new - ow['total']} under the round trip")
@@ -695,6 +701,8 @@ def search(only_new=False):
                 intl = " (international ticket: passport needed)" if h.get("international") else ""
                 lines.append(f"{describe(key)}: ${h['price']} · SKIPLAGGED{vs} · {h['airline']} at {time_label(h['departs'])}, "
                              f"ticket to {h['final']}, get off at {split_key(key)[1]}{intl}{link}")
+                push_lines.append(f"SKIPLAGGED{vs} · {describe(key)}: ${h['price']} · {h['airline']} at {time_label(h['departs'])}, "
+                                  f"ticket to {h['final']}, get off at {split_key(key)[1]}{intl}")
                 via = f" via {', '.join(h['via'])}" if h.get("via") else ""
                 item(key, f"SKIPLAGGED ${h['price']}", "skip", h["price"],
                      f"{h['airline']} {time_label(h['departs'])} · ticket to {h['final']}{via}"
@@ -710,7 +718,7 @@ def search(only_new=False):
         day = local_today().isoformat()
         price_email_day = day
         notify.send("Flight prices: " + title, "\n".join(lines) + f"\n\nAll fares: {PAGE_URL}", click=alert_link(alert),
-                    thread=(f"prices-{day}", f"Flight prices {nice_date(day)}", state.get("price_email_day") != day))
+                    push_body="\n".join(push_lines), thread=(f"prices-{day}", f"Flight prices {nice_date(day)}", state.get("price_email_day") != day))
 
     # If most searches failed, Google is probably blocking us. Say so, but not every hour.
     attempted = done + len(errors)
