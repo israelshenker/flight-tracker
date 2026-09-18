@@ -49,8 +49,8 @@ def send_push(title, body, click=None):
 def send(title, body, click=None, thread=None, push_body=None):
     """click: page the push notification's "Open alert" button opens.
     thread: (id, subject, first) to put the email in a shared conversation; the push keeps
-    `title` and the email body starts with it. push_body: different text for the push (the
-    price alerts put the change first there); defaults to body."""
+    `title` and the email body starts with it. push_body: different text for the push
+    (price alerts put one word such as UP or DOWN in front of each line); defaults to body."""
     for channel in (send_email, send_push):
         try:
             if channel is send_push:
