@@ -157,7 +157,9 @@ td.times{color:var(--muted);font-size:13px}
 .triprow:first-of-type{border-top:0}
 .sharelink{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 4px;font-size:13px}
 .sharelink input{flex:1;min-width:220px;font-size:12px}
-.viewswitch{position:fixed;right:16px;bottom:16px;z-index:6;border-radius:999px;padding:9px 16px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.18);background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+/* Calendar/List switch pinned to the top of the screen once the page's own toolbar has scrolled
+   away (on phones the bottom edge is often covered by the browser's toolbar). */
+.viewswitch{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));z-index:6;border-radius:999px;padding:10px 20px;font-size:15px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.25);background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 </style>
 </head>
 <body>
@@ -1152,6 +1154,7 @@ function render() {
   if (alertView && !selectMode) { const end = html.indexOf("</div>") + 6; html = html.slice(0, end) + alertHtml() + html.slice(end); }
   $("list").innerHTML = html;
   topScrollbars();
+  renderViewSwitch();
   for (const box of document.querySelectorAll("[data-partial]")) box.indeterminate = true;
   $("selBar").hidden = !selectMode;
   if (selectMode) {
@@ -1187,10 +1190,12 @@ function topScrollbars() {
 
 // Calendar / list switch that stays in the corner while scrolling (user's request).
 function renderViewSwitch() {
-  const b = $("viewSwitch");
-  b.hidden = selectMode || !tracked().length;
+  const b = $("viewSwitch"), bar = document.querySelector("#list .toolbar");
+  // Only once the toolbar (which has its own switch) is off screen.
+  b.hidden = selectMode || !tracked().length || !bar || bar.getBoundingClientRect().bottom > 0;
   b.textContent = compareMode ? "List view" : "Calendar view";
 }
+addEventListener("scroll", () => renderViewSwitch(), {passive: true});
 $("viewSwitch").onclick = () => { compareMode = !compareMode; alertView = null; render(); window.scrollTo({top: 0}); };
 
 // ---------- run status ----------
