@@ -6,7 +6,7 @@ from email.message import EmailMessage
 from email.utils import make_msgid
 
 
-def send_email(subject, body, thread=None, first=False):
+def send_email(subject, body, thread=None, first=False, to=None):
     """thread: emails with the same thread id and subject land in one Gmail conversation.
     The first email of a thread carries the thread's Message-ID; later ones reply to it."""
     sender = os.environ.get("GMAIL_ADDRESS")
@@ -17,7 +17,7 @@ def send_email(subject, body, thread=None, first=False):
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = sender
-    msg["To"] = os.environ.get("ALERT_EMAIL_TO") or sender
+    msg["To"] = to or os.environ.get("ALERT_EMAIL_TO") or sender  # to: a friend on a shared trip (friends.py)
     if thread and first:
         msg["Message-ID"] = f"<{thread}@flight-tracker>"
     elif thread:

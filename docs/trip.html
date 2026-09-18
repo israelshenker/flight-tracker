@@ -51,6 +51,16 @@ details{margin-top:10px}
 summary{cursor:pointer;color:var(--accent);font-size:14px}
 .empty{text-align:center;padding:40px 10px}
 .skipnote{margin-top:10px;font-size:14px;line-height:1.6}
+.signup{margin-top:14px}
+.signup .opts{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:10px 0}
+.signup label{display:flex;gap:6px;align-items:center;font-size:14px}
+.signup input[type=email],.signup select{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);max-width:100%}
+.signup input[type=email]{width:260px}
+.btn{font:inherit;border-radius:9px;border:1px solid var(--accent);background:var(--accent);color:#fff;padding:7px 14px;cursor:pointer;font-weight:600}
+@media (prefers-color-scheme:dark){.btn{color:#10131c}}
+.link{border:0;background:none;color:var(--accent);font:inherit;padding:0;cursor:pointer}
+.msg{font-size:14px;margin-top:8px}
+.msg.bad{color:var(--up)} .msg.good{color:var(--down)}
 .skip{font-size:12px;font-weight:600;border-radius:999px;padding:1px 8px;background:color-mix(in srgb,#c026d3 14%,transparent);color:#a21caf}
 @media (prefers-color-scheme:dark){.skip{color:#f0abfc}}
 </style>
@@ -97,9 +107,10 @@ function day(leg) {
 const moveClass = leg => { const m = day(leg); return !m || m.base == null || m.base === leg.price ? "" : leg.price > m.base ? "up" : "down"; };
 const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== leg.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
 
-let trip = null, open = null;
+let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
 async function load() {
-  const [id, key] = location.hash.slice(1).split(".");
+  const [id, key, verb, subId] = location.hash.slice(1).split(".");
+  shareId = id; shareKey = key; stopId = verb === "stop" ? subId : null;
   if (!id || !key) return fail("This link is incomplete. Ask for the link again.");
   let box;
   try {
@@ -175,6 +186,37 @@ function detail(i) {
   </div>`;
 }
 
+// "Email me updates": the request is locked with this trip's key and passed along through a
+// message relay (ntfy.sh) that the hourly check reads; it emails from there. Nothing to install.
+function signupHtml() {
+  if (!trip.signup) return "";
+  if (stopId) return `<div class="card signup"><b>Stop the email updates for this trip?</b>
+    <div style="margin-top:10px"><button class="btn" data-stop-emails="1">Stop emails</button></div><div class="msg" id="signupMsg"></div></div>`;
+  if (!signupOpen) return `<div style="margin-top:14px"><button class="btn" data-signup-open="1">Email me updates</button></div>`;
+  const hours = Array.from({length: 24}, (_, h) => `<option value="${h}"${h === 8 ? " selected" : ""}>${h === 0 ? "midnight" : h === 12 ? "noon" : `${h % 12} ${h < 12 ? "AM" : "PM"}`}</option>`).join("");
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((d, i) => `<option value="${i}">${d}</option>`).join("");
+  return `<div class="card signup"><b>Email me fare updates for this trip</b>
+    <div class="opts"><input type="email" id="suEmail" placeholder="you@example.com" autocomplete="email" aria-label="Email address"></div>
+    <div class="opts">
+      <label><input type="radio" name="suWhen" value="changes" checked> When prices change</label>
+      <label><input type="radio" name="suWhen" value="daily"> Once a day</label>
+      <label><input type="radio" name="suWhen" value="weekly"> Once a week</label>
+    </div>
+    <div class="opts" id="suTime" hidden><label id="suDayWrap" hidden>on <select id="suDay">${days}</select></label><label>at <select id="suHour">${hours}</select></label><span class="small muted">your time</span></div>
+    <div><button class="btn" data-signup="1">Sign me up</button> <button class="link small" data-signup-close="1">Cancel</button></div>
+    <div class="small muted" style="margin-top:8px">The first email, with today's fares, arrives within about an hour. Every email has a link to stop them.</div>
+    <div class="msg" id="signupMsg"></div></div>`;
+}
+async function post(req) {
+  const k = await crypto.subtle.importKey("raw", unb64url(shareKey), "AES-GCM", false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({name: "AES-GCM", iv}, k, new TextEncoder().encode(JSON.stringify(req)));
+  const b64 = b => { let t = ""; for (const x of new Uint8Array(b)) t += String.fromCharCode(x); return btoa(t); };
+  const res = await fetch(`https://ntfy.sh/${encodeURIComponent(trip.signup)}`, {method: "POST", body: JSON.stringify({t: shareId, iv: b64(iv), data: b64(data)})});
+  if (!res.ok) throw new Error(res.status);
+}
+function say(text, good) { const m = $("signupMsg"); if (m) { m.className = "msg " + (good ? "good" : "bad"); m.textContent = text; } }
+
 function render() {
   const going = trip.legs.filter(l => l.going), back = trip.legs.filter(l => !l.going);
   const pick = open != null && trip.legs[open];
@@ -183,6 +225,7 @@ function render() {
     ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
     ${pick && !pick.going ? detail(open) : ""}${table(back, "Coming back")}
+    ${signupHtml()}
     <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
 }
 document.addEventListener("click", e => {
@@ -190,6 +233,29 @@ document.addEventListener("click", e => {
   if (!b) return;
   if (b.dataset.open) { open = +b.dataset.open === open ? null : +b.dataset.open; render(); document.querySelector(".detail")?.scrollIntoView({block: "nearest", behavior: "smooth"}); }
   else if (b.dataset.close) { open = null; render(); }
+  else if (b.dataset.signupOpen) { signupOpen = true; render(); $("suEmail")?.focus(); }
+  else if (b.dataset.signupClose) { signupOpen = false; render(); }
+  else if (b.dataset.signup) {
+    const email = $("suEmail").value.trim(), when = document.querySelector("input[name=suWhen]:checked").value;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return say("Enter your email address.");
+    const id = [...crypto.getRandomValues(new Uint8Array(8))].map(x => x.toString(16).padStart(2, "0")).join("");
+    b.disabled = true;
+    post({a: "sub", id, email, schedule: when, hour: +$("suHour").value, day: +$("suDay").value, tz: Intl.DateTimeFormat().resolvedOptions().timeZone})
+      .then(() => { $("app").querySelector(".signup").innerHTML = `<b>You're signed up.</b><div class="small muted" style="margin-top:6px">The first email, with today's fares, arrives within about an hour at ${esc(email)}.</div>`; },
+            () => { b.disabled = false; say("Couldn't sign you up. Check your connection and try again."); });
+  }
+  else if (b.dataset.stopEmails) {
+    b.disabled = true;
+    post({a: "stop", id: stopId})
+      .then(() => { $("app").querySelector(".signup").innerHTML = `<b>Done.</b><div class="small muted" style="margin-top:6px">The emails stop within about an hour.</div>`; },
+            () => { b.disabled = false; say("Couldn't reach the server. Try again."); });
+  }
+});
+document.addEventListener("change", e => {
+  if (e.target.name === "suWhen") {
+    $("suTime").hidden = e.target.value === "changes";
+    $("suDayWrap").hidden = e.target.value !== "weekly";
+  }
 });
 window.addEventListener("hashchange", () => { open = null; load(); });
 load();

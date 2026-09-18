@@ -75,6 +75,32 @@ jobs:
           done
           echo "Could not save results after 5 tries"; exit 1
 
+      # Email updates for friends and family who signed up on a shared trip's page (friends.py).
+      # Not on the quick "new flights" runs, which can overlap an hourly run and double-send.
+      - name: Friend emails
+        if: success() && github.event_name != 'push'
+        continue-on-error: true  # a problem here shouldn't be reported as a failed price check
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+        run: |
+          git config user.name "flight-tracker-bot"
+          git config user.email "flight-tracker-bot@users.noreply.github.com"
+          git fetch -q origin main && git reset -q --hard origin/main
+          python friends.py send
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+            python friends.py merge
+            git add data/subscribers.json 2>/dev/null || true
+            git diff --cached --quiet && exit 0
+            git commit -q -m "Price check $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push -q origin HEAD:main && exit 0
+            sleep $((attempt * 3))
+          done
+          echo "Could not save friend emails after 5 tries"; exit 1
+
       - name: Report a failed check
         if: failure() && github.event_name != 'push'
         env:

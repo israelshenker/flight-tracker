@@ -383,6 +383,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 let token = null;
 try { token = localStorage.getItem("ghToken"); } catch {}
 let alerts = [], alertView = null, backToAlert = null;  // saved push alerts; alertView: alert id, "list", or null
+let subscribers = {subs: {}};  // friends signed up for email updates on shared trips (friends.py)
 let config = {watches: []}, history = [], state = {}, latest = {}, lastRun = null, busy = false, loaded = false, lastLoad = 0;
 
 // ---------- GitHub API ----------
@@ -500,7 +501,7 @@ async function loadAll() {
   vaultInfo = vi ? JSON.parse(vi) : null;
   await restoreVaultKey();
   if (vaultInfo && !vaultKey) throw Object.assign(new Error("locked"), {locked: true});
-  const [cf, hist, st, lt, al] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json", "data/alerts.json"]
+  const [cf, hist, st, lt, al, sb] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json", "data/alerts.json", "data/subscribers.json"]
     .map(async f => { const t = await raw(f); return t == null ? null : openText(t); }));
   config = cf ? JSON.parse(cf) : {watches: []};
   if (!Array.isArray(config.watches)) config.watches = [];
@@ -512,6 +513,7 @@ async function loadAll() {
   }
   state = st ? JSON.parse(st) : {};
   alerts = al ? JSON.parse(al) : [];
+  subscribers = sb ? JSON.parse(sb) : {subs: {}};
   loaded = true;
 }
 
@@ -764,6 +766,14 @@ function renderTripList() {
     <div class="inline small"><label><input type="checkbox" data-trip-share="${i}"${t.share ? " checked" : ""}> Share with a link (read-only page)</label>
       <label><input type="checkbox" data-trip-skip="${i}"${t.skiplagged ? " checked" : ""}> Show skiplagged fares on it</label>
       <label><input type="checkbox" data-trip-delete="${i}"${t.deleted ? " checked" : ""}> Delete this trip (its routes stay tracked)</label></div>
+    ${(() => {
+      const subs = Object.values(subscribers.subs || {}).filter(x => x.trip === t.id);
+      if (!subs.length) return "";
+      const hr = h => h === 0 ? "midnight" : h === 12 ? "noon" : `${h % 12} ${h < 12 ? "AM" : "PM"}`;
+      const days = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
+      return `<div class="small" style="margin:6px 0"><b>Email updates</b> (signed up on the trip page)${subs.map(x => `<div class="inline small" style="margin-top:4px"><span>${esc(x.email)} · ${x.schedule === "changes" ? "when prices change" : x.schedule === "daily" ? `daily at ${hr(x.hour)}` : `${days[x.day]} at ${hr(x.hour)}`}</span>
+        <label><input type="checkbox" data-trip-unsub="${i}" value="${esc(x.id)}"${(t.remove_subs || []).includes(x.id) ? " checked" : ""}> Remove</label></div>`).join("")}</div>`;
+    })()}
     ${t.share ? `<div class="sharelink"><input type="text" readonly value="${esc(shareLink(t))}"><button class="link small" data-trip-copy="${i}">Copy link</button><button class="link small" data-trip-newlink="${i}" title="Makes a new link; the old one stops working after the next check">New link</button></div>
       <div class="small muted">${tripsOf().find(x => x.id === t.id)?.share?.id === t.share.id ? "The page updates with every hourly check." : "Save, then the link starts working after the check that saving starts (a minute or two)."}</div>` : ""}
   </div>`).join("") : `<p class="small muted">No trips yet.</p>`;
@@ -780,6 +790,11 @@ $("tripList").addEventListener("change", e => {
     renderTripList();
   } else if (el.dataset.tripSkip) tripDraft[+el.dataset.tripSkip].skiplagged = el.checked;
   else if (el.dataset.tripDelete) tripDraft[+el.dataset.tripDelete].deleted = el.checked;
+  else if (el.dataset.tripUnsub) {
+    const t = tripDraft[+el.dataset.tripUnsub], set = new Set(t.remove_subs || []);
+    el.checked ? set.add(el.value) : set.delete(el.value);
+    t.remove_subs = [...set];
+  }
 });
 $("tripList").addEventListener("click", e => {
   const b = e.target.closest("button");
@@ -806,8 +821,13 @@ $("btnSaveTrips").onclick = () => {
         if (t.person?.trim()) x.person = t.person.trim();
         if (t.skiplagged) x.skiplagged = true;
         if (t.share) x.share = t.share;
+        // Friends removed here stop getting emails at the next check; keep only ids still signed up.
+        const rm = (t.remove_subs || []).filter(id => subscribers.subs?.[id]);
+        if (rm.length) x.remove_subs = rm;
         return x;
       });
+      // Where shared trip pages send "Email me updates" sign-ups (a random ntfy.sh topic; see friends.py).
+      if (c.trips.some(t => t.share) && !c.signup_topic) c.signup_topic = "trip-signup-" + randomId(12);
       for (const w of c.watches) if (w.trips) { w.trips = w.trips.filter(id => !gone.has(id)); if (!w.trips.length) delete w.trips; }
     }, "Update trips from web page");
     tripDraft = structuredClone(tripsOf());
