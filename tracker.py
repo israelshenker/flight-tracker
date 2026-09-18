@@ -1037,6 +1037,11 @@ def merge():
     write_json(LATEST, latest)
     save_alerts(res.get("alerts", []))
     drop_past_dates(cfg)
+    # The sign-up relay for shared trip pages' "Email me updates" (friends.py). The page creates it
+    # when a trip is first shared; this covers trips shared from an older copy of the page.
+    if any((t.get("share") or {}).get("id") for t in cfg.get("trips", [])) and not cfg.get("signup_topic"):
+        cfg["signup_topic"] = "trip-signup-" + os.urandom(12).hex()
+        vault.write_text(CONFIG, json.dumps(cfg, indent=2) + "\n")
     write_trip_pages(cfg, latest)
 
     if res.get("price_email_day"):
