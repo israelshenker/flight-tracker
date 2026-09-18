@@ -27,6 +27,8 @@ th{color:var(--muted);font-weight:500;font-size:12px}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 table.grid thead th:first-child,table.grid tbody th{position:sticky;left:0;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--line)}
 table.grid tbody th{font-weight:600}
+button.sortby{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:inherit}
+button.sortby.on{color:var(--accent);font-weight:650}
 table.grid td button{border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}
 table.grid td button.up{color:var(--up)}
 table.grid td button.down{color:var(--down)}
@@ -107,6 +109,7 @@ function day(leg) {
 const moveClass = leg => { const m = day(leg); return !m || m.base == null || m.base === leg.price ? "" : leg.price > m.base ? "up" : "down"; };
 const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== leg.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
 
+const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
 async function load() {
   const [id, key, verb, subId] = location.hash.slice(1).split(".");
@@ -139,10 +142,23 @@ function table(legs, dir) {
     rows.get(r)[col(l)] = l;
   }
   const priced = l => l && l.price != null;
-  const list = [...rows].sort((a, b) => Math.min(...Object.values(a[1]).filter(priced).map(l => l.price), 1e9) - Math.min(...Object.values(b[1]).filter(priced).map(l => l.price), 1e9));
-  return `<h2>${dir}</h2><div class="card tablewrap"><table class="grid"><thead><tr><th>Route</th>${dates.map(d => {
+  // Default: cheapest route first. Tap a date: routes with a fare that day (cheapest first), then
+  // N/A / GONE that day, then routes not tracked that day. Tap Route: A to Z. Same as the main page.
+  const cheapest = r => Math.min(...Object.values(r).filter(priced).map(l => l.price), 1e9);
+  const by = sortBy[dir], tier = l => !l ? 2 : l.price == null ? 1 : 0;
+  const list = [...rows].sort((a, b) => {
+    if (by === "route") return a[0].localeCompare(b[0]);
+    if (by && dates.includes(by)) {
+      const x = a[1][by], y = b[1][by];
+      const d = tier(x) - tier(y) || (tier(x) === 0 ? x.price - y.price : 0);
+      if (d) return d;
+    }
+    return cheapest(a[1]) - cheapest(b[1]);
+  });
+  const head = (key, label, title) => `<button class="sortby${by === key ? " on" : ""}" data-sort="${esc(dir)}|${esc(key)}" title="${by === key ? "Back to cheapest route first" : title}">${label}${by === key ? " ↑" : ""}</button>`;
+  return `<h2>${dir}</h2><div class="card tablewrap"><table class="grid"><thead><tr><th>${head("route", "Route", "Sort routes A to Z")}</th>${dates.map(d => {
     const [dep, ret] = d.split("|");
-    return `<th class="num">${esc(niceDate(dep))}${ret ? `<br>back ${esc(niceDate(ret))}` : ""}</th>`;
+    return `<th class="num">${head(d, `${esc(niceDate(dep))}${ret ? `<br>back ${esc(niceDate(ret))}` : ""}`, "Sort by the fare on this date")}</th>`;
   }).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
     const prices = Object.values(r).filter(priced).map(l => l.price), min = Math.min(...prices);
     return `<tr><th scope="row">${esc(route)}</th>${dates.map(d => {
@@ -231,6 +247,14 @@ function render() {
 document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b) return;
+  if (b.dataset.sort) {
+    const [dir, key] = b.dataset.sort.split("|");
+    sortBy[dir] = sortBy[dir] === key ? null : key;
+    const wraps = [...document.querySelectorAll(".tablewrap")].map(w => w.scrollLeft);  // stay where you were
+    render();
+    document.querySelectorAll(".tablewrap").forEach((w, i) => { w.scrollLeft = wraps[i] || 0; });
+    return;
+  }
   if (b.dataset.open) { open = +b.dataset.open === open ? null : +b.dataset.open; render(); document.querySelector(".detail")?.scrollIntoView({block: "nearest", behavior: "smooth"}); }
   else if (b.dataset.close) { open = null; render(); }
   else if (b.dataset.signupOpen) { signupOpen = true; render(); $("suEmail")?.focus(); }
