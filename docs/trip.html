@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Trip fares</title>
+<link rel="icon" href="icon-192.png" type="image/png">
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1c1c1e;--muted:#6b6b70;--line:#e4e2dc;--up:#b42318;--down:#067647;--accent:#2754c5;--soft:#eef2fc}
+@media (prefers-color-scheme:dark){:root{--bg:#121214;--card:#1c1c1f;--ink:#f2f2f3;--muted:#9a9aa1;--line:#2c2c31;--up:#f97066;--down:#47cd89;--accent:#8ea8ff;--soft:#23283a}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px 16px 60px}
+main{max-width:780px;margin:0 auto}
+h1{font-size:24px;margin:0;letter-spacing:-.01em}
+h2{font-size:16px;margin:22px 0 8px}
+a{color:var(--accent)}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;font-size:12px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+table.grid thead th:first-child,table.grid tbody th{position:sticky;left:0;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--line)}
+table.grid tbody th{font-weight:600}
+table.grid td button{border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}
+table.grid td button.up{color:var(--up)}
+table.grid td button.down{color:var(--down)}
+table.grid td.best{background:color-mix(in srgb,var(--down) 13%,transparent)}
+table.grid td.best button{text-decoration:underline;text-decoration-color:var(--down);text-underline-offset:3px}
+table.grid td.on{outline:2px solid var(--accent);outline-offset:-2px}
+.na{color:var(--muted)}
+.gone{color:var(--up);font-weight:650}
+.gsk{display:block;font-size:11px;font-weight:600;color:#a21caf}
+@media (prefers-color-scheme:dark){.gsk{color:#f0abfc}}
+.movedot{display:inline-block;width:.45em;height:.45em;border-radius:50%;background:#7c3aed;margin-right:.3em;vertical-align:.15em}
+.detail{border-color:var(--accent)}
+.detail .price{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.price.up{color:var(--up)} .price.down{color:var(--down)}
+.badge{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;margin-right:6px;display:inline-block}
+.badge.up{color:var(--up);background:color-mix(in srgb,var(--up) 12%,transparent)}
+.badge.down{color:var(--down);background:color-mix(in srgb,var(--down) 12%,transparent)}
+.spark{color:var(--accent);vertical-align:middle}
+.row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.close{border:0;background:none;color:var(--accent);font:inherit;font-size:14px;cursor:pointer;padding:0}
+details{margin-top:10px}
+summary{cursor:pointer;color:var(--accent);font-size:14px}
+.empty{text-align:center;padding:40px 10px}
+.skipnote{margin-top:10px;font-size:14px;line-height:1.6}
+.skip{font-size:12px;font-weight:600;border-radius:999px;padding:1px 8px;background:color-mix(in srgb,#c026d3 14%,transparent);color:#a21caf}
+@media (prefers-color-scheme:dark){.skip{color:#f0abfc}}
+</style>
+</head>
+<body>
+<main id="app"><p class="muted">Loading…</p></main>
+<script>
+// A read-only page for one shared trip. The link looks like trip.html#<id>.<key>: the part
+// after # never leaves the browser. The tracker saves t/<id>.json every hour, locked with
+// that key (AES-GCM), holding only this trip's fares.
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+const unb64url = t => unb64(t.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - t.length % 4) % 4));
+function niceDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {weekday: "short", month: "short", day: "numeric"});
+}
+const when = s => new Date(s).toLocaleString("en-US", {timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+function ago(s) {
+  const m = Math.round((Date.now() - new Date(s)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} hr ago` : `${Math.round(h / 24)} days ago`;
+}
+const timeLabel = hhmm => { const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+function sparkline(prices) {
+  const v = prices.filter(p => p != null);
+  if (v.length < 2) return "";
+  const w = 140, h = 30, lo = Math.min(...v), hi = Math.max(...v), span = (hi - lo) || 1, step = w / (v.length - 1);
+  const pts = v.map((p, i) => `${(i * step).toFixed(1)},${(h - 3 - (p - lo) / span * (h - 6)).toFixed(1)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+}
+// Same 24-hour rule as the main page: compare with the fare 24 hours before the latest check.
+function day(leg) {
+  const t = leg.moves;
+  if (!t?.length || leg.price == null) return null;
+  const cutoff = new Date(Date.parse(leg.checked_at) - 864e5).toISOString().slice(0, 19);
+  const base = t[0][1], moves = t.length - 1;
+  return {base, moves, full: t[0][0].slice(0, 19) <= cutoff,
+          hours: Math.max(1, Math.round((Date.parse(leg.checked_at) - Date.parse(t[0][0])) / 36e5))};
+}
+const moveClass = leg => { const m = day(leg); return !m || m.base == null || m.base === leg.price ? "" : leg.price > m.base ? "up" : "down"; };
+const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== leg.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
+
+let trip = null, open = null;
+async function load() {
+  const [id, key] = location.hash.slice(1).split(".");
+  if (!id || !key) return fail("This link is incomplete. Ask for the link again.");
+  let box;
+  try {
+    const res = await fetch(`t/${encodeURIComponent(id)}.json?${Date.now()}`, {cache: "no-store"});
+    if (res.status === 404) return fail("This trip isn't shared anymore, or the link was replaced with a new one.");
+    box = await res.json();
+  } catch { return fail("Couldn't load the trip. Check your connection and reload."); }
+  try {
+    const k = await crypto.subtle.importKey("raw", unb64url(key), "AES-GCM", false, ["decrypt"]);
+    const data = await crypto.subtle.decrypt({name: "AES-GCM", iv: unb64(box.iv)}, k, unb64(box.data));
+    trip = JSON.parse(new TextDecoder().decode(data));
+  } catch { return fail("This link doesn't open this trip. Ask for the link again."); }
+  document.title = trip.name || "Trip fares";
+  render();
+}
+function fail(text) { $("app").innerHTML = `<div class="card empty"><p>${esc(text)}</p></div>`; }
+
+function table(legs, dir) {
+  if (!legs.length) return "";
+  const col = l => l.dep + (l.ret ? "|" + l.ret : "");
+  const dates = [...new Set(legs.map(col))].sort();
+  const rows = new Map();
+  for (const l of legs) {
+    const r = `${l.o} → ${l.d}${l.opts ? ` (${l.opts})` : ""}`;
+    if (!rows.has(r)) rows.set(r, {});
+    rows.get(r)[col(l)] = l;
+  }
+  const priced = l => l && l.price != null;
+  const list = [...rows].sort((a, b) => Math.min(...Object.values(a[1]).filter(priced).map(l => l.price), 1e9) - Math.min(...Object.values(b[1]).filter(priced).map(l => l.price), 1e9));
+  return `<h2>${dir}</h2><div class="card tablewrap"><table class="grid"><thead><tr><th>Route</th>${dates.map(d => {
+    const [dep, ret] = d.split("|");
+    return `<th class="num">${esc(niceDate(dep))}${ret ? `<br>back ${esc(niceDate(ret))}` : ""}</th>`;
+  }).join("")}</tr></thead><tbody>${list.map(([route, r]) => {
+    const prices = Object.values(r).filter(priced).map(l => l.price), min = Math.min(...prices);
+    return `<tr><th scope="row">${esc(route)}</th>${dates.map(d => {
+      const l = r[d];
+      if (!l) return `<td class="num muted">—</td>`;
+      const i = trip.legs.indexOf(l), on = open === i ? " on" : "";
+      if (!l.checked_at) return `<td class="num muted${on}">soon</td>`;
+      if (l.price == null) return `<td class="num${on}"><button data-open="${i}" class="${l.last_price != null ? "gone" : "na"}">${l.last_price != null ? "GONE" : "N/A"}</button></td>`;
+      return `<td class="num${prices.length > 1 && l.price === min ? " best" : ""}${on}"><button data-open="${i}" class="${moveClass(l)}">${moveDot(l)}$${l.price}</button>${l.skip ? `<span class="gsk">skip $${l.skip.price}</span>` : ""}</td>`;
+    }).join("")}</tr>`;
+  }).join("")}</tbody></table></div>`;
+}
+
+function detail(i) {
+  const l = trip.legs[i];
+  if (!l) return "";
+  const hist = l.history || [];
+  const seen = hist.map(p => p[1]).filter(p => p != null);
+  if (l.price != null) seen.push(l.price);
+  const first = hist.find(p => p[1] != null)?.[1];
+  const m = day(l);
+  const badges = [];
+  if (m && m.base != null && m.base !== l.price)
+    badges.push(`<span class="badge ${l.price > m.base ? "up" : "down"}">${m.full ? "24 h" : `${m.hours} h`}: ${l.price > m.base ? "▲" : "▼"} $${Math.abs(l.price - m.base)}</span>`);
+  if (first != null && l.price != null && l.price !== first && m?.full !== false)
+    badges.push(`<span class="badge ${l.price > first ? "up" : "down"}">Since tracking began${hist[0] ? " " + esc(new Date(hist[0][0]).toLocaleDateString("en-US", {timeZone: "America/New_York", month: "short", day: "numeric"})) : ""}: ${l.price > first ? "▲" : "▼"} $${Math.abs(l.price - first)}</span>`);
+  const others = Object.entries(l.airlines || {}).sort((a, b) => a[1] - b[1]);
+  const status = l.price == null
+    ? `<div class="price">${l.last_price != null ? "No longer available" : "No nonstop flights"}</div><div class="muted small">${l.last_price != null ? `Last seen at $${l.last_price}. ` : ""}Nothing nonstop on the latest check.</div>`
+    : `<div class="price ${moveClass(l)}">${moveDot(l)}$${l.price}</div><div class="muted small">${esc(l.airline)}${l.times?.length ? ` · leaves ${esc(l.times.map(timeLabel).join(", "))}` : ""}</div>`;
+  const s = l.skip;
+  return `<div class="card detail">
+    <div class="row"><div><b>${esc(l.o)} → ${esc(l.d)}</b> · ${esc(niceDate(l.dep))}${l.ret ? `, back ${esc(niceDate(l.ret))}` : ""}${l.opts ? `<div class="muted small">${esc(l.opts)}</div>` : ""}</div><button class="close" data-close="1">Close</button></div>
+    <div style="margin-top:8px">${status}</div>
+    ${badges.length ? `<div style="margin-top:8px">${badges.join("")}</div>` : ""}
+    ${seen.length ? `<div style="margin-top:8px" class="small">${sparkline([...hist.map(p => p[1]), l.price])} <span class="muted">Low $${Math.min(...seen)} · High $${Math.max(...seen)} since tracking began</span></div>` : ""}
+    ${others.length > 1 ? `<div class="small" style="margin-top:8px">${others.map(([a, p]) => `${esc(a)} $${p}`).join(" · ")}</div>` : ""}
+    ${s ? `<div class="skipnote"><span class="skip">Skiplagged</span> <b>$${s.price}</b> · ${esc(s.airline)}${s.departs ? ` ${esc(timeLabel(s.departs))}` : ""} · a ticket to ${esc(s.final)} that stops in ${esc(l.d)}; you'd get off there. Carry-on only, and don't book the return on the same ticket.${s.international ? " International ticket: passport needed." : ""}</div>` : ""}
+    <div class="small" style="margin-top:10px"><a href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">See it on Google Flights ↗</a>${l.checked_at ? ` <span class="muted">· checked ${esc(ago(l.checked_at))}</span>` : ""}</div>
+    ${hist.length ? `<details><summary>Price history</summary><table><tbody>${hist.slice().reverse().map(p => `<tr><td>${esc(when(p[0]))}</td><td class="num">${p[1] == null ? "no nonstops" : "$" + p[1]}</td></tr>`).join("")}</tbody></table></details>` : ""}
+  </div>`;
+}
+
+function render() {
+  const going = trip.legs.filter(l => l.going), back = trip.legs.filter(l => !l.going);
+  const pick = open != null && trip.legs[open];
+  $("app").innerHTML = `<h1>${esc(trip.name || "Trip")}</h1>
+    <div class="muted small">${trip.person ? `For ${esc(trip.person)} · ` : ""}Cheapest nonstop fare per person · updated ${esc(ago(trip.updated))} · checked about every hour</div>
+    ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
+    ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
+    ${pick && !pick.going ? detail(open) : ""}${table(back, "Coming back")}
+    <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.open) { open = +b.dataset.open === open ? null : +b.dataset.open; render(); document.querySelector(".detail")?.scrollIntoView({block: "nearest", behavior: "smooth"}); }
+  else if (b.dataset.close) { open = null; render(); }
+});
+window.addEventListener("hashchange", () => { open = null; load(); });
+load();
+</script>
+</body>
+</html>

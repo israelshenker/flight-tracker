@@ -8,6 +8,7 @@ Run on GitHub in two steps so overlapping checks can't overwrite each other:
   python tracker.py merge            add run_results.json to the newest data files
 Locally, `python tracker.py` does both.
 """
+import base64
 import csv
 import io
 import json
@@ -21,6 +22,8 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 import google_flights
 import notify
@@ -90,6 +93,11 @@ def is_international(code):
 # Second connections allowed on two-stop tickets (plus the tracked destinations).
 SECOND_STOPS = ["CLE", "ORD", "IAD", "DTW", "CLT", "BOS", "PIT", "BUF", "PHL", "ATL",
                 "DCA", "BWI", "MIA", "MCO", "TPA", "IAH", "DFW", "DEN"]
+# Same list as FLORIDA_AIRPORTS in docs/index.html: a trip's direction ("Going" / "Coming back")
+# is decided by which side of this line each leg starts on.
+FLORIDA = {"FLL", "DJT", "PBI", "MIA", "MCO", "SFB", "MLB", "RSW", "APF", "TPA", "JAX", "SRQ", "PIE", "PGD",
+           "EYW", "MTH", "PNS", "VPS", "ECP", "TLH", "GNV", "DAB", "LAL", "OCF", "BOW"}
+TRIP_PAGES = HERE / "docs" / "t"  # one locked file per shared trip, read by docs/trip.html
 HISTORY_HEADER = ["checked_at", "origin", "destination", "depart", "return", "price", "airline", "options"]
 
 
@@ -875,6 +883,77 @@ def entry(stamp, f, prev=None):
     return e
 
 
+def trip_going(legs):
+    """{watch key: True if "Going"}: legs that start on the same side (Florida or not) as the
+    trip's earliest leg are Going; the rest are Coming back. Round trips count as Going."""
+    if not legs:
+        return {}
+    first = min(legs, key=lambda w: (w["depart"], w["origin"]))
+    side = first["origin"] in FLORIDA
+    return {watch_key(w): bool(w.get("return")) or (w["origin"] in FLORIDA) == side for w in legs}
+
+
+def watch_key(w):
+    return key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))
+
+
+def google_link(w, adults):
+    o = parse_options(options_code(w))
+    tfs = google_flights.build_tfs(w["depart"], [w["origin"]], [w["dest"]], w.get("return", ""),
+                                   o["adults"] or adults, o["carry_on"], o["checked"])
+    return f"{google_flights.URL}/search?" + urllib.parse.urlencode({"tfs": tfs, "hl": "en", "curr": "USD"})
+
+
+def write_trip_pages(cfg, latest):
+    """For every shared trip, docs/t/<share id>.json: that trip's fares only, AES-256-GCM with
+    the trip's own key. The key is only in config.json (encrypted) and in the link the user
+    shares (after the #, which browsers never send to a server). Files of trips no longer
+    shared are deleted, so old links stop working."""
+    trips = [t for t in cfg.get("trips", []) if (t.get("share") or {}).get("id") and t["share"].get("key")]
+    TRIP_PAGES.mkdir(parents=True, exist_ok=True)
+    keep = set()
+    if trips:
+        trails = log_trails(read_log())
+        today = local_today().isoformat()
+        adults = cfg.get("adults", 1)
+        no_skip = skiplagged_off_keys(cfg)
+        for t in trips:
+            legs = [w for w in cfg.get("watches", []) if t["id"] in (w.get("trips") or []) and w["depart"] >= today]
+            going = trip_going(legs)
+            out = []
+            for w in legs:
+                k = watch_key(w)
+                e = latest.get(k) or {}
+                leg = {"o": w["origin"], "d": w["dest"], "dep": w["depart"], "ret": w.get("return", ""),
+                       "opts": options_label(options_code(w)), "going": going.get(k, True),
+                       "checked_at": e.get("checked_at"), "price": e.get("price"), "airline": e.get("airline"),
+                       "times": (e.get("times") or {}).get(e.get("airline"), []),
+                       "airlines": e.get("airlines") or {}, "moves": e.get("moves") or [],
+                       "history": [p for p in trails.get(k, []) if p[0] <= (e.get("checked_at") or "9999")],
+                       "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults)}
+                h = e.get("hidden")
+                if (t.get("skiplagged") and h and cfg.get("skiplagged", True) and k not in no_skip
+                        and not (h.get("international") and not is_international(w["dest"])
+                                 and not cfg.get("skiplagged_intl_domestic"))
+                        and (e.get("price") is None or h["price"] < e["price"])):
+                    leg["skip"] = {x: h.get(x) for x in ("price", "airline", "departs", "final", "via", "stops", "international")}
+                out.append(leg)
+            snap = {"v": 1, "name": t.get("name", ""), "person": t.get("person", ""),
+                    "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "skiplagged": bool(t.get("skiplagged")), "legs": out}
+            key = base64.urlsafe_b64decode(t["share"]["key"] + "=" * (-len(t["share"]["key"]) % 4))
+            iv = os.urandom(12)
+            box = {"v": 1, "iv": base64.b64encode(iv).decode(),
+                   "data": base64.b64encode(AESGCM(key).encrypt(iv, json.dumps(snap).encode(), None)).decode()}
+            name = re.sub(r"[^a-z0-9]", "", t["share"]["id"].lower())
+            (TRIP_PAGES / f"{name}.json").write_text(json.dumps(box), encoding="utf-8")
+            keep.add(f"{name}.json")
+    for f in TRIP_PAGES.glob("*.json"):
+        if f.name not in keep:
+            f.unlink()
+    print(f"  trip pages: {len(keep)} shared")
+
+
 def drop_past_dates(cfg):
     """Remove flights whose departure date has passed (Eastern time) from config.json and
     their rows from history.csv, so neither keeps growing. Git history still has them."""
@@ -948,6 +1027,7 @@ def merge():
     write_json(LATEST, latest)
     save_alerts(res.get("alerts", []))
     drop_past_dates(cfg)
+    write_trip_pages(cfg, latest)
 
     if res.get("price_email_day"):
         state["price_email_day"] = res["price_email_day"]  # later price emails that day join its thread
