@@ -62,7 +62,8 @@ def open_signup(message, trips):
 
 
 def trip_link(t, stop_id=None):
-    return f"{tracker.PAGE_URL}trip.html#{t['share']['id']}.{t['share']['key']}" + (f".stop.{stop_id}" if stop_id else "")
+    sh = t["share"]
+    return f"{tracker.PAGE_URL}trip.html#{sh.get('token') or sh['id'] + '.' + sh['key']}" + (f".stop.{stop_id}" if stop_id else "")
 
 
 def due(sub, prices, now):

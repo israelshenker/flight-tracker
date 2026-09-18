@@ -697,14 +697,23 @@ function compareHtml(watches) {
   return out;
 }
 // ---------- trips ----------
-// config.trips: [{id, name, person, skiplagged, share: {id, key}}]; a watch's trips: [trip ids].
-// A shared trip gets a locked copy of its fares (docs/t/<share id>.json, written by tracker.py)
-// that trip.html#<share id>.<key> opens; the key is only in config.json and that link.
+// config.trips: [{id, name, person, skiplagged, share: {id, key, token}}]; a watch's trips: [trip ids].
+// A shared trip gets a locked copy of its fares (docs/t/<share id>.json, written by tracker.py).
+// The link is trip.html#<token> (16 characters): trip.html works out the file id and the key
+// from the token (SHA-256 of "id:"+token and "key:"+token), so the link can stay short. Trips
+// shared before tokens existed use the long form trip.html#<share id>.<key>. Either way the
+// secret is only in config.json and the link, after the # (never sent to a server).
 const tripsOf = () => config.trips || [];
 const tripName = id => tripsOf().find(t => t.id === id)?.name || "";
-const shareLink = t => t.share ? new URL(`trip.html#${t.share.id}.${t.share.key}`, location.href.split("#")[0]).href : "";
+const shareLink = t => t.share ? new URL(`trip.html#${t.share.token || `${t.share.id}.${t.share.key}`}`, location.href.split("#")[0]).href : "";
+const b64url = b => bytes64(b).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function newShare() {  // same derivation as docs/trip.html
+  const token = b64url(crypto.getRandomValues(new Uint8Array(12)));
+  const sha = async x => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(x)));
+  const id = [...(await sha("id:" + token)).slice(0, 12)].map(b => b.toString(16).padStart(2, "0")).join("");
+  return {id, key: b64url(await sha("key:" + token)), token};
+}
 const randomId = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, "0")).join("");
-const randomKey = () => bytes64(crypto.getRandomValues(new Uint8Array(32))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 // Same rule as tracker.py's trip_going(): legs starting on the same side (Florida or not) as the
 // trip's earliest leg are "Going"; the rest "Coming back"; round trips count as Going.
 function tripGoing(legs) {
@@ -728,7 +737,25 @@ function tripFilterHtml() {
   return `<div class="tripfilter"><label class="small muted" for="tripFilter">Trip</label>
     <select id="tripFilter"><option value="">All routes</option>${ts.map(t => `<option value="${esc(t.id)}"${t.id === tripFilter ? " selected" : ""}>${esc(t.name)}${t.person ? ` · ${esc(t.person)}` : ""}</option>`).join("")}<option value="none"${tripFilter === "none" ? " selected" : ""}>Not in a trip</option></select>
     ${tripFilter && tripFilter !== "none" ? `<label class="small muted" for="dirFilter">Direction</label><select id="dirFilter"><option value="">Both</option><option value="going"${dirFilter === "going" ? " selected" : ""}>Going</option><option value="back"${dirFilter === "back" ? " selected" : ""}>Coming back</option></select>` : ""}
-    <button class="link small" data-open-trips="1">Trips…</button></div>`;
+    <button class="link small" data-open-trips="1">Trips…</button></div>${shareBarHtml()}`;
+}
+// With a trip picked: its friends-and-family link, ready to copy (or a button to share it).
+function shareBarHtml() {
+  const t = tripsOf().find(x => x.id === tripFilter);
+  if (!t) return "";
+  if (!t.share) return `<div class="sharelink"><span class="muted">${esc(t.name)} isn't shared.</span><button class="link small" data-share-trip="${esc(t.id)}">Share it with a link</button></div>`;
+  return `<div class="sharelink"><span class="muted">Friends and family link:</span><a href="${esc(shareLink(t))}" target="_blank" rel="noopener">${esc(shareLink(t).replace(/^https:\/\//, ""))}</a><button class="link small" data-copy-share="${esc(t.id)}">Copy</button>${t.share.token ? "" : `<button class="link small" data-share-trip="${esc(t.id)}" title="Replaces the current link; the old one stops working after the next check">Make it shorter</button>`}</div>`;
+}
+function shareTrip(id) {
+  if (!needToken(() => shareTrip(id))) return;
+  save(async () => {
+    const share = await newShare();
+    await updateConfig(c => {
+      const t = (c.trips || []).find(x => x.id === id);
+      if (t) t.share = share;
+      if (!c.signup_topic) c.signup_topic = "trip-signup-" + randomId(12);
+    }, "Update trips from web page");
+  });
 }
 function tripOptions(sel, withNone) {
   $(sel).innerHTML = (withNone ? `<option value="">No trip</option>` : "") + tripsOf().map(t => `<option value="${esc(t.id)}">${esc(t.name)}${t.person ? ` · ${esc(t.person)}` : ""}</option>`).join("") + `<option value="new">New trip…</option>`;
@@ -786,8 +813,7 @@ $("tripList").addEventListener("change", e => {
   const el = e.target;
   if (el.dataset.tripShare) {
     const t = tripDraft[+el.dataset.tripShare];
-    if (el.checked) t.share = {id: randomId(12), key: randomKey()}; else delete t.share;
-    renderTripList();
+    if (el.checked) newShare().then(x => { t.share = x; renderTripList(); }); else { delete t.share; renderTripList(); }
   } else if (el.dataset.tripSkip) tripDraft[+el.dataset.tripSkip].skiplagged = el.checked;
   else if (el.dataset.tripDelete) tripDraft[+el.dataset.tripDelete].deleted = el.checked;
   else if (el.dataset.tripUnsub) {
@@ -803,8 +829,7 @@ $("tripList").addEventListener("click", e => {
     const t = tripDraft[+b.dataset.tripCopy];
     navigator.clipboard?.writeText(shareLink(t)).then(() => { b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy link", 1500); }, () => {});
   } else if (b.dataset.tripNewlink) {
-    tripDraft[+b.dataset.tripNewlink].share = {id: randomId(12), key: randomKey()};
-    renderTripList();
+    newShare().then(x => { tripDraft[+b.dataset.tripNewlink].share = x; renderTripList(); });
   }
 });
 $("btnNewTrip").onclick = () => { tripDraft.push({id: "t" + randomId(4), name: "New trip"}); renderTripList(); };
@@ -1611,6 +1636,14 @@ document.addEventListener("click", e => {
   else if (b.dataset.bulk === "change" || b.dataset.bulk === "add") openBulk(b.dataset.bulk);
   else if (b.dataset.bulk === "trip") openAssign();
   else if (b.dataset.openTrips) openTrips();
+  else if (b.dataset.shareTrip) {
+    const t = tripsOf().find(x => x.id === b.dataset.shareTrip);
+    if (!t?.share || confirm("Make a shorter link? The current link stops working after the next check, so send friends the new one.")) shareTrip(b.dataset.shareTrip);
+  }
+  else if (b.dataset.copyShare) {
+    const t = tripsOf().find(x => x.id === b.dataset.copyShare);
+    navigator.clipboard?.writeText(shareLink(t)).then(() => { b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1500); }, () => {});
+  }
   else if (b.dataset.bulk === "skipoff") bulkSkiplagged(false);
   else if (b.dataset.bulk === "skipon") bulkSkiplagged(true);
   else if (b.dataset.bulk === "stop") stopKeys([...selected], "the selected routes");

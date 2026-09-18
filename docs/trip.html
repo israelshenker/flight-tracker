@@ -70,9 +70,9 @@ summary{cursor:pointer;color:var(--accent);font-size:14px}
 <body>
 <main id="app"><p class="muted">Loading…</p></main>
 <script>
-// A read-only page for one shared trip. The link looks like trip.html#<id>.<key>: the part
-// after # never leaves the browser. The tracker saves t/<id>.json every hour, locked with
-// that key (AES-GCM), holding only this trip's fares.
+// A read-only page for one shared trip. The link looks like trip.html#<token> (or, for trips
+// shared before tokens, #<id>.<key>): the part after # never leaves the browser. The tracker
+// saves t/<id>.json every hour, locked with the trip's key (AES-GCM), holding only its fares.
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
@@ -112,7 +112,20 @@ const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== l
 const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
 async function load() {
-  const [id, key, verb, subId] = location.hash.slice(1).split(".");
+  // Short links: #<token>[.stop.<subscriber>]; the file id and key come from the token (same
+  // derivation as index.html's newShare). Older links: #<file id>.<key>[.stop.<subscriber>].
+  const parts = location.hash.slice(1).split(".");
+  let id, key, verb, subId;
+  if (parts[1] && parts[1] !== "stop") [id, key, verb, subId] = parts;
+  else {
+    const sha = async x => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(x)));
+    const b64u = b => { let t = ""; for (const x of b) t += String.fromCharCode(x); return btoa(t).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+    if (parts[0]) {
+      id = [...(await sha("id:" + parts[0])).slice(0, 12)].map(b => b.toString(16).padStart(2, "0")).join("");
+      key = b64u(await sha("key:" + parts[0]));
+    }
+    [verb, subId] = parts.slice(1);
+  }
   shareId = id; shareKey = key; stopId = verb === "stop" ? subId : null;
   if (!id || !key) return fail("This link is incomplete. Ask for the link again.");
   let box;
