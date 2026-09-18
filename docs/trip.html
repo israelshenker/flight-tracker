@@ -222,10 +222,10 @@ function render() {
   const pick = open != null && trip.legs[open];
   $("app").innerHTML = `<h1>${esc(trip.name || "Trip")}</h1>
     <div class="muted small">${trip.person ? `For ${esc(trip.person)} · ` : ""}Cheapest nonstop fare per person · updated ${esc(ago(trip.updated))} · checked about every hour</div>
+    ${signupHtml()}
     ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
     ${pick && !pick.going ? detail(open) : ""}${table(back, "Coming back")}
-    ${signupHtml()}
     <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
 }
 document.addEventListener("click", e => {
