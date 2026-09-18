@@ -67,7 +67,7 @@ jobs:
             git reset -q --hard origin/main
             python tracker.py merge
             git add data config.json  # config.json: past dates are dropped; data/vault.json when encrypted
-            git add -A docs/t  # shared trip pages (locked copies), including removed ones
+            git add -A docs/t 2>/dev/null || true  # shared trip pages (locked copies), incl. removed ones; none yet = no folder
             git diff --cached --quiet && exit 0
             git commit -q -m "Price check $(date -u +%Y-%m-%dT%H:%MZ)"
             git push -q origin HEAD:main && exit 0
