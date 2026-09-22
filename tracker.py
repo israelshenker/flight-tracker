@@ -799,7 +799,10 @@ def search(only_new=False):
         one = f.get("onestop")
         if one and new and one["price"] < new and key not in onestop_off_keys(cfg):
             prior = (before or {}).get("onestop") or {}
-            if not prior.get("price") or is_flagged(prior["price"], one["price"], cfg):
+            # No alert the first time a connection is found (that would be every route at once);
+            # after that, the usual $/% amounts, or any time it's under the route's alert price.
+            target = targets.get(key)
+            if (one["price"] < (target or 0)) or (prior.get("price") and is_flagged(prior["price"], one["price"], cfg)):
                 lines.append(f"ONE-STOP {describe(key)}: ${one['price']} · ${new - one['price']} under the nonstop · "
                              f"{one['airline']} at {time_label(one['departs'])} via {one['via']}, "
                              f"{one['layover'] // 60}h {one['layover'] % 60}m layover{link}")
