@@ -61,6 +61,8 @@ summary{cursor:pointer;color:var(--accent);font-size:14px}
 .bagnote{margin-top:10px;font-size:13px;color:var(--up)}
 .bagflag{color:var(--up);font-weight:700}
 .signup{margin-top:14px}
+.opts{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.opts label{display:flex;gap:6px;align-items:center}
 .signup .opts{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:10px 0}
 .signup label{display:flex;gap:6px;align-items:center;font-size:14px}
 .signup input[type=email],.signup select{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);max-width:100%}
@@ -120,6 +122,7 @@ function day(leg) {
 const moveClass = leg => { const m = day(leg); return !m || m.base == null || m.base === leg.price ? "" : leg.price > m.base ? "up" : "down"; };
 const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== leg.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
 
+let sortBest = false;  // false = order by the nonstop fare, true = by the cheapest of the three
 const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
 async function load() {
@@ -166,15 +169,18 @@ function table(legs, dir) {
     rows.get(r)[col(l)] = l;
   }
   const priced = l => l && l.price != null;
+  // "Best price" counts the 1-stop and skiplagged fares too; "Nonstop" only the nonstop.
+  const value = l => !priced(l) ? Infinity
+    : sortBest ? Math.min(l.price, l.skip?.price ?? Infinity, l.onestop?.price ?? Infinity) : l.price;
   // Default: cheapest route first. Tap a date: routes with a fare that day (cheapest first), then
   // N/A / GONE that day, then routes not tracked that day. Tap Route: A to Z. Same as the main page.
-  const cheapest = r => Math.min(...Object.values(r).filter(priced).map(l => l.price), 1e9);
+  const cheapest = r => Math.min(...Object.values(r).map(value), 1e9);
   const by = sortBy[dir], tier = l => !l ? 2 : l.price == null ? 1 : 0;
   const list = [...rows].sort((a, b) => {
     if (by === "route") return a[0].localeCompare(b[0]);
     if (by && dates.includes(by)) {
       const x = a[1][by], y = b[1][by];
-      const d = tier(x) - tier(y) || (tier(x) === 0 ? x.price - y.price : 0);
+      const d = tier(x) - tier(y) || (tier(x) === 0 ? value(x) - value(y) : 0);
       if (d) return d;
     }
     return cheapest(a[1]) - cheapest(b[1]);
@@ -278,6 +284,9 @@ function render() {
   $("app").innerHTML = `<h1>${esc(trip.name || "Trip")}</h1>
     <div class="muted small">${trip.person ? `For ${esc(trip.person)} · ` : ""}Cheapest nonstop fare per person · updated ${esc(ago(trip.updated))} · checked about every hour</div>
     ${airportKey()}
+    ${trip.legs.some(l => l.skip || l.onestop) ? `<div class="opts" style="margin-top:10px"><span class="small muted">Sort by</span>
+      <label class="small"><input type="radio" name="sortby" value="nonstop"${sortBest ? "" : " checked"}> Nonstop</label>
+      <label class="small"><input type="radio" name="sortby" value="best"${sortBest ? " checked" : ""}> Best price</label></div>` : ""}
     ${signupHtml()}
     ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
@@ -317,6 +326,13 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("change", e => {
+  if (e.target.name === "sortby") {
+    sortBest = e.target.value === "best";
+    const wraps = [...document.querySelectorAll(".tablewrap")].map(w => w.scrollLeft);
+    render();
+    document.querySelectorAll(".tablewrap").forEach((w, i) => { w.scrollLeft = wraps[i] || 0; });
+    return;
+  }
   if (e.target.name === "suWhen") {
     $("suTime").hidden = e.target.value === "changes";
     $("suDayWrap").hidden = e.target.value !== "weekly";
