@@ -61,6 +61,10 @@ CODE_ALIASES = {"PBI": "DJT"}  # Palm Beach was renamed PBI -> DJT in Aug 2026
 #     tickets compete for the 300, so it's a wider net that runs every 3 hours.
 SKIP_EVERY = {1: timedelta(minutes=50), 2: timedelta(minutes=50)}  # both passes every hourly run
 SKIP_MAX_SEARCHES = 200  # per run; anything left goes first next run
+# One-stop fares to the tracked destination (shown next to the nonstop, never instead of it).
+ONESTOP_EVERY = timedelta(minutes=50)   # once every hourly run
+ONESTOP_MAX_SEARCHES = 60               # per run
+MIN_LAYOVER_MINUTES = 45                # tighter connections aren't realistic options
 SKIP_SPLIT_UP_TO = 200  # dollars; see hidden_search
 NORTH = {"JFK", "LGA", "EWR", "HPN", "ACY", "PHL", "TTN", "SWF", "ISP", "BOS"}
 BEYOND_NORTH = ["BOS", "BUF", "ROC", "SYR", "ALB", "BTV", "PWM", "BDL", "PVD", "MHT",
@@ -486,6 +490,101 @@ def skiplagged_off_keys(cfg):
             for w in cfg.get("watches", []) if w.get("no_skiplagged") or w["depart"] in off_dates}
 
 
+def onestop_off_keys(cfg):
+    """Routes with one-stop fares turned off: one route at a time, or a whole date."""
+    off_dates = set(cfg.get("onestop_off_dates", []))
+    return {key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))
+            for w in cfg.get("watches", []) if w.get("no_onestop") or w["depart"] in off_dates}
+
+
+def layover_minutes(ticket):
+    """Minutes on the ground between the two flights, or None if the times don't add up."""
+    try:
+        (_, land, day1), (off, _, day2) = ticket["times"][0], ticket["times"][1]
+        mins = lambda t: int(t[:2]) * 60 + int(t[3:])
+        gap = mins(off) - mins(land)
+        if day1 and day2 and day1 != day2:
+            gap += 24 * 60 * (date(*day2) - date(*day1)).days
+        return gap if gap >= 0 else gap + 24 * 60
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def onestop_search(cfg, latest, fares, errors, started, adults, stamp):
+    """Add the cheapest realistic one-stop fare to fares[key]["onestop"] for one-way routes.
+    Uses the same results feed as the skiplagged pass, because Google's results page leaves
+    connecting flights out when the route has nonstops."""
+    if cfg.get("onestop") is False:
+        return
+    now = datetime.fromisoformat(stamp)
+    off = onestop_off_keys(cfg)
+    groups = defaultdict(list)  # (depart, carry-on, checked bags, passengers) -> routes due
+    for key in fares:
+        o, d, dep, ret, opts = split_key(key)
+        opt = parse_options(opts)
+        if ret or key in off:
+            continue
+        last = (latest.get(key) or {}).get("onestop_checked_at")
+        if not last or now - datetime.fromisoformat(last) >= ONESTOP_EVERY:
+            groups[(dep, opt["carry_on"], opt["checked"], opt["adults"] or adults)].append((o, d, dep, ret, opts))
+    if not groups:
+        return
+    left, found_total = ONESTOP_MAX_SEARCHES, 0
+    started_pass = time.monotonic()
+
+    def age(g):
+        return min((latest.get(key_of(*r)) or {}).get("onestop_checked_at", "") for r in g[1])
+
+    for (dep, carry, checked, pax), routes in sorted(groups.items(), key=age):
+        origins, dests = sorted({r[0] for r in routes}), sorted({r[1] for r in routes})
+        planned = len(chunks(origins, MAX_AIRPORTS)) * len(chunks(dests, google_flights.FEED_MAX_CITIES))
+        if planned > left:
+            log(f"  1-stop {dep}: waits for the next run (search limit)", "  some 1-stop searches wait for the next run (search limit)")
+            continue
+        tickets = []
+        try:
+            for os_ in chunks(origins, MAX_AIRPORTS):
+                for ds in chunks(dests, google_flights.FEED_MAX_CITIES):
+                    if time.monotonic() - started > TIME_BUDGET_SECONDS:
+                        log("  1-stop: out of time; the rest go first next run", "  1-stop: out of time; the rest go first next run")
+                        return
+                    left -= 1
+                    tickets += per_person(google_flights.feed_search(dep, os_, ds, pax, carry, checked, max_stops=1), pax)
+                    time.sleep(2 + random.random() * 3)
+        except Exception as e:
+            errors.append(f"1-stop {dep}: {type(e).__name__}")
+            log(f"  ERROR 1-stop {dep}: {e}", f"  ERROR in a 1-stop search: {type(e).__name__}")
+            continue
+        found = 0
+        for r in routes:
+            o, d, _, _, opts = r
+            opt = parse_options(opts)
+            best = None
+            for t in tickets:
+                legs = t["legs"]
+                if len(legs) != 2 or legs[0][0] != o or legs[-1][1] != d:
+                    continue
+                if not in_window(opt, legs[0][2], legs[0][3]):
+                    continue
+                wait = layover_minutes(t)
+                if wait is None or wait < MIN_LAYOVER_MINUTES:
+                    continue
+                if best is None or t["price"] < best["price"]:
+                    best = {"price": t["price"], "airline": t["airline"], "departs": legs[0][2],
+                            "via": legs[0][1], "layover": wait, "arrives": t["times"][1][1],
+                            "flights": [legs[0][3], legs[1][3]]}
+            key = key_of(*r)
+            if best:
+                fares[key]["onestop"] = best
+                found += 1
+            fares[key]["onestop_checked_at"] = stamp
+        found_total += found
+        log(f"  1-stop {dep}: {len(tickets)} tickets, a cheaper connection on {found} of {len(routes)} routes",
+            f"  1-stop search: {len(tickets)} tickets, connections on {found} of {len(routes)} routes")
+    log(f"  1-stop: {ONESTOP_MAX_SEARCHES - left} of {ONESTOP_MAX_SEARCHES} searches used, {time.monotonic() - started_pass:.0f}s",
+        f"  1-stop: {ONESTOP_MAX_SEARCHES - left} of {ONESTOP_MAX_SEARCHES} searches used, {time.monotonic() - started_pass:.0f}s")
+
+
 def combined_hidden(f, prev):
     """The cheaper of a route's one-stop and two-stop skiplagged fares, using this run's
     result for a pass that ran and the saved one for a pass that didn't."""
@@ -635,6 +734,7 @@ def search(only_new=False):
 
     if cfg.get("skiplagged", True):
         hidden_search(cfg, latest, fares, errors, started, adults, stamp)
+        onestop_search(cfg, latest, fares, errors, started, adults, stamp)
 
     # ---- alerts: one line per route, only for what changed ----
     targets = {}
@@ -696,6 +796,17 @@ def search(only_new=False):
                      f"{ow['out']['airline']} out {time_label(ow['out']['departs'])} + {ow['back']['airline']} back "
                      f"{time_label(ow['back']['departs'])} · ${new - ow['total']} under the round trip")
                 counts["two one-ways"] += 1
+        one = f.get("onestop")
+        if one and new and one["price"] < new and key not in onestop_off_keys(cfg):
+            prior = (before or {}).get("onestop") or {}
+            if not prior.get("price") or is_flagged(prior["price"], one["price"], cfg):
+                lines.append(f"ONE-STOP {describe(key)}: ${one['price']} · ${new - one['price']} under the nonstop · "
+                             f"{one['airline']} at {time_label(one['departs'])} via {one['via']}, "
+                             f"{one['layover'] // 60}h {one['layover'] % 60}m layover{link}")
+                item(key, f"ONE-STOP ${one['price']}", "down", one["price"],
+                     f"{one['airline']} {time_label(one['departs'])} via {one['via']} · "
+                     f"{one['layover'] // 60}h {one['layover'] % 60}m layover · ${new - one['price']} under the nonstop")
+                counts["1-stop"] += 1
         h = combined_hidden(f, before)
         if h and h.get("international") and not is_international(split_key(key)[1]) and not cfg.get("skiplagged_intl_domestic"):
             h = None  # international ending on a domestic trip, with that option off
@@ -890,6 +1001,11 @@ def entry(stamp, f, prev=None):
             e[f"{k}_checked_at"] = checked_at
         if h:
             e[k] = h
+    for k in ("onestop", "onestop_checked_at"):
+        if k in f:
+            e[k] = f[k]
+        elif "onestop_checked_at" not in f and (prev or {}).get(k) is not None:
+            e[k] = prev[k]  # this run didn't look; keep what we had
     hidden = combined_hidden(f, prev)
     if hidden:
         e["hidden"] = hidden
@@ -927,6 +1043,7 @@ def trip_legs(cfg, latest, t, trails):
     today = local_today().isoformat()
     adults = cfg.get("adults", 1)
     no_skip = skiplagged_off_keys(cfg)
+    onestop_off = onestop_off_keys(cfg)
     legs = [w for w in cfg.get("watches", []) if t["id"] in (w.get("trips") or []) and w["depart"] >= today]
     going = trip_going(legs)
     out = []
@@ -940,7 +1057,9 @@ def trip_legs(cfg, latest, t, trails):
                "airlines": e.get("airlines") or {}, "moves": e.get("moves") or [],
                "history": [p for p in trails.get(k, []) if p[0] <= (e.get("checked_at") or "9999")],
                "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults),
-               "bagless": e.get("bagless") or {}}
+               "bagless": e.get("bagless") or {},
+               "onestop": e.get("onestop") if e.get("onestop") and e.get("price") and e["onestop"]["price"] < e["price"]
+                          and k not in onestop_off else None}
         h = e.get("hidden")
         if (t.get("skiplagged") and h and cfg.get("skiplagged", True) and k not in no_skip
                 and not (h.get("international") and not is_international(w["dest"])

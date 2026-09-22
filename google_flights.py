@@ -140,7 +140,8 @@ FEED_MAX_CITIES = 10
 
 def feed_search(depart, origins, dests, adults=1, carry_on=0, checked=0, max_stops=2, via=()):
     """One-way tickets with up to max_stops connections, cheapest first:
-    [{"price", "airline", "legs": [(from, to, "HH:MM", flight), ...]}].
+    [{"price", "airline", "legs": [(from, to, "HH:MM", flight), ...],
+      "times": [(depart "HH:MM", arrive "HH:MM", day offset), ...] per leg}].
     Raises Blocked if Google sends back nothing usable."""
     stops = {0: 1, 1: 2, 2: 3}[max_stops]
     segment = [[[[a, 0] for a in origins]], [[[a, 0] for a in dests]], None, stops, None, None,
@@ -172,10 +173,16 @@ def feed_search(depart, origins, dests, adults=1, carry_on=0, checked=0, max_sto
         block = inner[section] if len(inner) > section else None
         for item in (block[0] if isinstance(block, list) and block and block[0] else []):
             try:
-                legs = [(l[3], l[6], "%02d:%02d" % tuple(([*(l[8] or []), 0, 0])[:2]), flight_id(l)) for l in item[0][2]]
+                raw = item[0][2]
+                legs = [(l[3], l[6], "%02d:%02d" % tuple(([*(l[8] or []), 0, 0])[:2]), flight_id(l)) for l in raw]
+                # Departure and arrival of each flight, for layovers: l[8] leaves, l[10] lands,
+                # l[21] the date it leaves, l[20]/l[22] unused here.
+                times = [("%02d:%02d" % tuple(([*(l[8] or []), 0, 0])[:2]),
+                          "%02d:%02d" % tuple(([*(l[10] or []), 0, 0])[:2]),
+                          l[21] if len(l) > 21 else None) for l in raw]
                 price = item[1][0][1]
             except (IndexError, TypeError):
                 continue
             if price is not None and legs:
-                out.append({"price": int(price), "airline": ", ".join(item[0][1] or []), "legs": legs})
+                out.append({"price": int(price), "airline": ", ".join(item[0][1] or []), "legs": legs, "times": times})
     return out

@@ -122,6 +122,10 @@ table.grid td a.gone{color:var(--up);font-weight:650;opacity:.8}
 table.grid td.best{background:color-mix(in srgb,var(--down) 13%,transparent)}
 table.grid td.best a{text-decoration:underline;text-decoration-color:var(--down);text-underline-offset:3px}
 .gsk{display:block;font-size:11px;font-weight:600;color:#a21caf;border-radius:4px;padding:0 3px;margin:1px -3px 0}
+.gone1{display:block;font-size:11px;font-weight:600;color:#0369a1;border-radius:4px;padding:0 3px;margin:1px -3px 0}
+@media (prefers-color-scheme:dark){.gone1{color:#7dd3fc}}
+.stop1{font-size:12px;font-weight:600;border-radius:999px;padding:1px 8px;background:color-mix(in srgb,#0284c7 15%,transparent);color:#0369a1;flex:none}
+@media (prefers-color-scheme:dark){.stop1{color:#7dd3fc}}
 .gsk.best{background:color-mix(in srgb,#c026d3 16%,transparent)}
 @media (prefers-color-scheme:dark){.gsk{color:#f0abfc}}
 .selbar{position:sticky;bottom:0;z-index:5;background:var(--card);border:1px solid var(--accent);border-radius:14px;padding:10px 14px;margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;box-shadow:0 -4px 16px rgba(0,0,0,.12)}
@@ -351,6 +355,7 @@ td.times{color:var(--muted);font-size:13px}
     <div class="row" style="flex-direction:column;align-items:flex-start;gap:6px">
       <label class="inline"><input type="checkbox" id="setSkip"> Look for skiplagged fares (one-stop tickets hourly, two-stop every 3 hours)</label>
       <label class="inline"><input type="checkbox" id="setSkipIntl"> For domestic trips, also include skiplagged tickets that continue to an international city (passport needed at check-in). International trips always include them.</label>
+      <label class="inline"><input type="checkbox" id="setOneStop"> Look for 1-stop fares to the same airport (shown next to the nonstop, never instead of it)</label>
       <label class="inline"><input type="checkbox" id="setNewLow"> Alert when a route hits its lowest fare since tracking began (even if the $ and % amounts are 0)</label>
     </div>
     <p class="small muted" style="margin-top:0">A skiplagged fare is a ticket to a city past your destination that connects there, when it's cheaper to book it and get off at the connection. One-way, carry-on only; round trips and routes with checked bags are skipped. Airlines forbid it and may penalize repeat use.</p>
@@ -372,6 +377,8 @@ td.times{color:var(--muted);font-size:13px}
     <button data-bulk="trip">Trip…</button>
     <button data-bulk="skipoff">Skiplagged off</button>
     <button data-bulk="skipon">Skiplagged on</button>
+    <button data-bulk="oneoff">1-stop off</button>
+    <button data-bulk="oneon">1-stop on</button>
     <button data-bulk="stop">Stop tracking</button>
     <button class="link" data-bulk="done" style="margin-left:auto">Done</button>
   </div>
@@ -572,6 +579,13 @@ function ticketLink(w, h) {
   return googleSearchLink({depart: w.depart, from: w.origin, to: h.final, stops: h.stops || 1, via: [w.dest, ...(h.via || [])],
     airlines: h.flights?.[0] ? [h.flights[0].slice(0, 2)] : [], timeFrom: +h.departs.slice(0, 2), timeTo: +h.departs.slice(0, 2) + 1, carry: o.carry_on, checked: 0, adults: o.adults});
 }
+// The same search on Google Flights: one stop, through that connection, same airline.
+function oneStopLink(w, one) {
+  const o = parseOpts(optsCode(w));
+  return googleSearchLink({depart: w.depart, from: w.origin, to: w.dest, stops: 1, via: [one.via],
+    airlines: one.flights?.[0] ? [one.flights[0].slice(0, 2)] : [], timeFrom: o.time_from, timeTo: o.time_to,
+    carry: o.carry_on, checked: o.checked, adults: o.adults});
+}
 function googleSearchLink(q) {
   const o = {time_from: q.timeFrom || 0, time_to: q.timeTo ?? 24, carry_on: q.carry || 0, checked: q.checked || 0}, bytes = [];
   const varint = (n, out) => { while (n > 127) { out.push((n & 127) | 128); n >>>= 7; } out.push(n); };
@@ -650,9 +664,12 @@ function compareHtml(watches) {
       rows.set(`${w.origin}-${w.dest}`, r);
       continue;
     }
-    const skip = skipFare(cur, w)?.price;
-    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur, w), bag: bagNote(cur)};
-    else if (skip && (!r[w.depart].skip || skip < r[w.depart].skip)) r[w.depart].skip = skip;
+    const skip = skipFare(cur, w)?.price, one = oneFare(cur, w)?.price;
+    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, one, cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur, w), bag: bagNote(cur)};
+    else {
+      if (skip && (!r[w.depart].skip || skip < r[w.depart].skip)) r[w.depart].skip = skip;
+      if (one && (!r[w.depart].one || one < r[w.depart].one)) r[w.depart].one = one;
+    }
     rows.set(`${w.origin}-${w.dest}`, r);
   }
   if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
@@ -699,7 +716,7 @@ function compareHtml(watches) {
           if (c.na && c.gone) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="gone" title="${esc(`Had nonstop fares${c.gone.at ? " until " + when(c.gone.at) : ""} (last $${c.gone.price}${c.gone.low ? `, lowest $${c.gone.low}` : ""}); none found on the latest check`)}">GONE</a>${c.gone.price != null ? `<span class="wasprice">$${c.gone.price}</span>` : ""}</td>`;
           if (c.na) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="na" title="Tracked, but no nonstop flights were found on the latest check">N/A</a></td>`;
           const sk = c.skip && c.skip < c.price ? c.skip : null;
-          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc([c.airline, c.tip, c.bag].filter(Boolean).join(" · "))}" class="${c.cls.trim()}">${c.dot}$${c.price}${c.bag ? '<span class="bagflag">*</span>' : ""}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
+          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc([c.airline, c.tip, c.bag].filter(Boolean).join(" · "))}" class="${c.cls.trim()}">${c.dot}$${c.price}${c.bag ? '<span class="bagflag">*</span>' : ""}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}${c.one && c.one < c.price ? `<span class="gone1">1 stop $${c.one}</span>` : ""}</td>`;
         }).join("")}</tr>`;
       }).join("")}</tbody></table></div>`;
   }
@@ -1001,6 +1018,11 @@ const skipOff = dep => (config.skiplagged_off_dates || []).includes(dep);
 const US_TERRITORIES = new Set(["SJU", "BQN", "PSE", "STT", "STX", "GUM", "SPN"]);
 const INTL_CODES = new Set(["YYZ","YUL","YOW","YHZ","YQB","NAS","CUN","MBJ","SDQ","PUJ","GCM","AUA","CUR","SXM","BGI","PTY","SJO","BOG","MDE","GUA","SAL","LIM","HAV","PLS","UVF","GRU","LHR","DUB","KIN","POS","GND","ANU","BZE","RTB","SAP","MGA","CZM","SJD","SCL","EZE","UIO","GYE"]);
 const isInternational = code => !US_TERRITORIES.has(code) && (INTL_CODES.has(code) || /^Y[A-Z]{2}$/.test(code));
+const oneOff = dep => (config.onestop_off_dates || []).includes(dep);
+// The route's cheapest one-stop fare, only when it beats the nonstop (informational, like skiplagged).
+const oneFare = (cur, w) => !w.no_onestop && !oneOff(w.depart) && config.onestop !== false
+  && cur?.onestop && cur.price != null && cur.onestop.price < cur.price ? cur.onestop : null;
+const layoverLabel = m => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m layover`;
 const skipFare = (cur, w) => !(cur?.hidden?.international && !isInternational(w.dest) && !config.skiplagged_intl_domestic) && !w.no_skiplagged && !skipOff(w.depart) && config.skiplagged !== false && cur?.hidden && (cur.price == null || cur.hidden.price < cur.price) ? cur.hidden : null;
 
 function render() {
@@ -1039,7 +1061,7 @@ function render() {
     html = `<div class="toolbar"><span class="small muted">Tick routes, or pick a shortcut:</span>
       <button class="link small" data-sel-all="1">Select all</button>
       <select id="selAirport"><option value="">All routes with airport…</option>${airports.map(a => `<option>${a}</option>`).join("")}</select>
-      <select id="selKind"><option value="">Select by type…</option><option value="plain">No bags, any time</option><option value="bags">With bags</option><option value="times">With a time window</option><option value="alert">With a price alert</option><option value="none">No nonstop found</option><option value="skip">Has a cheaper skiplagged fare</option></select>
+      <select id="selKind"><option value="">Select by type…</option><option value="plain">No bags, any time</option><option value="bags">With bags</option><option value="times">With a time window</option><option value="alert">With a price alert</option><option value="none">No nonstop found</option><option value="skip">Has a cheaper skiplagged fare</option><option value="one">Has a cheaper 1-stop fare</option></select>
       <button class="link small" data-sel-clear="1">Clear</button></div>`;
   } else {
     html = `<div class="toolbar">${backToAlert ? `<button class="link small" data-back-alert="1">‹ Back to alert</button>` : ""}<button class="link small" data-recent-alerts="1">Recent alerts</button><button class="link small" data-compare="1">${compareMode ? "List view" : "Calendar view"}</button><button class="link small" data-select-mode="1">Select routes</button>${compareMode ? "" : `<button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button>`}</div>${tripFilterHtml()}`;
@@ -1062,7 +1084,7 @@ function render() {
     html += `<div class="group"><h3>${selectMode
       ? `<input type="checkbox" class="sel" data-sel-day="${esc(g)}" aria-label="Select all routes on ${esc(title)}"${daySel === dayKeys.length ? " checked" : ""}${daySel && daySel < dayKeys.length ? ' data-partial="1"' : ""}>`
       : `<button class="fold" data-fold-day="${esc(g)}" aria-expanded="${!dayFolded}" title="${dayFolded ? "Show" : "Hide"} this date's routes">${dayFolded ? "▸" : "▾"}</button>`}${esc(title)} <span class="muted small">· ${ws.length} route${ws.length > 1 ? "s" : ""}, cheapest first</span></h3>
-      <span style="display:flex;gap:12px;flex-wrap:wrap">${!dayFolded && priced.length > 1 ? `<button class="link small" data-fold-all="${esc(g)}">${allRoutesFolded ? "Expand" : "Collapse"} all routes</button>` : ""}${g.endsWith("|") && config.skiplagged !== false ? `<button class="link small" data-skip-date="${esc(g.split("|")[0])}" title="${skipOff(g.split("|")[0]) ? "Start looking for skiplagged fares on this date" : "Stop looking for skiplagged fares on this date, e.g. if you need a checked bag"}">Skiplagged: ${skipOff(g.split("|")[0]) ? "off" : "on"}</button>` : ""}<button class="link small" data-edit-day="${esc(g)}" title="Change bags, times, passengers or the price alert for every route on this date">Edit this date</button><button class="link small" data-stop-group="${esc(g)}">Stop all for this date</button></span></div>`;
+      <span style="display:flex;gap:12px;flex-wrap:wrap">${!dayFolded && priced.length > 1 ? `<button class="link small" data-fold-all="${esc(g)}">${allRoutesFolded ? "Expand" : "Collapse"} all routes</button>` : ""}${g.endsWith("|") && config.skiplagged !== false ? `<button class="link small" data-skip-date="${esc(g.split("|")[0])}" title="${skipOff(g.split("|")[0]) ? "Start looking for skiplagged fares on this date" : "Stop looking for skiplagged fares on this date, e.g. if you need a checked bag"}">Skiplagged: ${skipOff(g.split("|")[0]) ? "off" : "on"}</button>` : ""}${g.endsWith("|") && config.onestop !== false ? `<button class="link small" data-one-date="${esc(g.split("|")[0])}" title="${oneOff(g.split("|")[0]) ? "Start looking for 1-stop fares on this date" : "Stop looking for 1-stop fares on this date"}">1-stop: ${oneOff(g.split("|")[0]) ? "off" : "on"}</button>` : ""}<button class="link small" data-edit-day="${esc(g)}" title="Change bags, times, passengers or the price alert for every route on this date">Edit this date</button><button class="link small" data-stop-group="${esc(g)}">Stop all for this date</button></span></div>`;
     if (dayFolded) {
       const best = priced[0];
       html += `<div class="card compact"><div class="daysum">${best
@@ -1087,7 +1109,7 @@ function render() {
 
         html += `<article class="card compact"><div class="cline">
           ${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(k)}" aria-label="Select ${esc(w.origin)} to ${esc(w.dest)}"${selected.has(k) ? " checked" : ""}>` : `<button class="fold" data-fold="${esc(k)}" aria-expanded="false" title="Show details">▸</button>`}<span class="route">${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</span>
-          <span class="rest" title="${esc(cheapestFlights(cur))}">${tags}${cheapestShort(cur).replace('class="oneline"', 'class="flights"')}</span>${skipFare(cur, w) ? `<span class="skip">skiplagged $${skipFare(cur, w).price}</span>` : ""}${oneWays(cur) ? `<span class="skip ow">2 one-ways $${oneWays(cur).total}</span>` : ""}<span class="price${moveClass(cur)}" title="${esc(moveTitle(cur, w))}">${moveDot(cur)}$${cur.price}</span>
+          <span class="rest" title="${esc(cheapestFlights(cur))}">${tags}${cheapestShort(cur).replace('class="oneline"', 'class="flights"')}</span>${skipFare(cur, w) ? `<span class="skip">skiplagged $${skipFare(cur, w).price}</span>` : ""}${oneFare(cur, w) ? `<span class="stop1">1 stop $${oneFare(cur, w).price}</span>` : ""}${oneWays(cur) ? `<span class="skip ow">2 one-ways $${oneWays(cur).total}</span>` : ""}<span class="price${moveClass(cur)}" title="${esc(moveTitle(cur, w))}">${moveDot(cur)}$${cur.price}</span>
         </div></article>`;
         continue;
       }
@@ -1131,6 +1153,11 @@ function render() {
           const ow = oneWays(cur);
           if (!ow) return "";
           return `<div class="skiprow"><span class="skip ow">Two one-ways</span> <b>$${ow.total}</b> <span class="muted">($${cur.price - ow.total} less than the round trip)</span> · out ${esc(ow.out.airline)} ${esc(flightLabel(ow.out.flight))} ${esc(timeLabel(ow.out.departs))} $${ow.out.price} · back ${esc(ow.back.airline)} ${esc(flightLabel(ow.back.flight))} ${esc(timeLabel(ow.back.departs))} $${ow.back.price}</div>`;
+        })()}
+        ${(() => {
+          const one = oneFare(cur, w);
+          if (!one) return "";
+          return `<div class="skiprow"><span class="stop1">1 stop</span> <b>$${one.price}</b> <span class="muted">($${cur.price - one.price} less)</span> · ${esc(one.airline)} ${esc(timeLabel(one.departs))} via <b>${esc(CITY[one.via] ? `${CITY[one.via]} (${one.via})` : one.via)}</b> · ${esc(layoverLabel(one.layover))}${one.arrives ? ` · arrives ${esc(timeLabel(one.arrives))}` : ""}${one.flights?.length ? ` · flights ${esc(one.flights.map(flightLabel).join(" + "))}` : ""} · <a href="${oneStopLink(w, one)}" target="_blank" rel="noopener">see it on Google Flights ↗</a></div>`;
         })()}
         ${(() => {
           const h = skipFare(cur, w);
@@ -1531,7 +1558,7 @@ document.addEventListener("change", e => {
     for (const w of tracked()) {
       const o = parseOpts(optsCode(w)), cur = latest[wKey(w)];
       const match = {plain: !optsCode(w), bags: o.carry_on || o.checked, times: o.time_from || o.time_to < 24,
-                     alert: !!targetFor(w), none: cur && cur.price == null, skip: !!skipFare(cur, w)}[t.value];
+                     alert: !!targetFor(w), none: cur && cur.price == null, skip: !!skipFare(cur, w), one: !!oneFare(cur, w)}[t.value];
       if (match) selected.add(wKey(w));
     }
     render();
@@ -1635,6 +1662,22 @@ $("btnBulkSave").onclick = () => {
     show(null);
   }, $("bulkMsg"));
 };
+function bulkOnestop(on) {
+  if (!needToken(() => bulkOnestop(on))) return;
+  const keys = new Set(selected), count = keys.size;
+  save(() => updateConfig(c => {
+    for (const x of c.watches) if (keys.has(wKey(x))) { if (on) delete x.no_onestop; else x.no_onestop = true; }
+  }, `1-stop ${on ? "on" : "off"} for ${count} route(s) from web page`));
+}
+function toggleOneDate(dep) {
+  if (!needToken(() => toggleOneDate(dep))) return;
+  const turnOff = !oneOff(dep);
+  save(() => updateConfig(c => {
+    const off = new Set(c.onestop_off_dates || []);
+    turnOff ? off.add(dep) : off.delete(dep);
+    c.onestop_off_dates = [...off].filter(d => d >= todayEastern()).sort();
+  }, `1-stop ${turnOff ? "off" : "on"} for ${dep} from web page`));
+}
 function bulkSkiplagged(on) {
   if (!needToken(() => bulkSkiplagged(on))) return;
   const keys = new Set(selected), count = keys.size;
@@ -1664,6 +1707,9 @@ document.addEventListener("click", e => {
   }
   else if (b.dataset.bulk === "skipoff") bulkSkiplagged(false);
   else if (b.dataset.bulk === "skipon") bulkSkiplagged(true);
+  else if (b.dataset.bulk === "oneoff") bulkOnestop(false);
+  else if (b.dataset.bulk === "oneon") bulkOnestop(true);
+  else if (b.dataset.oneDate) toggleOneDate(b.dataset.oneDate);
   else if (b.dataset.bulk === "stop") stopKeys([...selected], "the selected routes");
 });
 
@@ -1727,6 +1773,7 @@ $("btnSettings").onclick = () => {
   $("setSkip").checked = config.skiplagged ?? true;
   $("setNewLow").checked = config.alert_new_low ?? true;
   $("setSkipIntl").checked = !!config.skiplagged_intl_domestic;
+  $("setOneStop").checked = config.onestop ?? true;
   $("btnForgetPass").hidden = !vaultInfo;
   $("settingsMsg").textContent = "";
   show("settingsPanel");
@@ -1736,9 +1783,9 @@ $("btnSaveSettings").onclick = () => {
   if (!needToken(() => { show("settingsPanel"); $("btnSaveSettings").click(); })) return;
   const adults = Math.max(1, Math.min(9, Math.round(+$("setAdults").value) || 1));
   const dollars = Math.max(0, +$("setDollars").value || 0), percent = Math.max(0, +$("setPercent").value || 0);
-  const skip = $("setSkip").checked, newLow = $("setNewLow").checked, skipIntl = $("setSkipIntl").checked;
+  const skip = $("setSkip").checked, newLow = $("setNewLow").checked, skipIntl = $("setSkipIntl").checked, onestop = $("setOneStop").checked;
   save(async () => {
-    await updateConfig(c => { c.adults = adults; c.alert_dollars = dollars; c.alert_percent = percent; c.skiplagged = skip; delete c.skiplagged_international; c.skiplagged_intl_domestic = skipIntl; c.alert_new_low = newLow; }, "Update settings from web page");
+    await updateConfig(c => { c.adults = adults; c.alert_dollars = dollars; c.alert_percent = percent; c.skiplagged = skip; delete c.skiplagged_international; c.skiplagged_intl_domestic = skipIntl; c.alert_new_low = newLow; c.onestop = onestop; }, "Update settings from web page");
     show(null);
   }, $("settingsMsg"));
 };

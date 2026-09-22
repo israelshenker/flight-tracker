@@ -70,6 +70,10 @@ summary{cursor:pointer;color:var(--accent);font-size:14px}
 .link{border:0;background:none;color:var(--accent);font:inherit;padding:0;cursor:pointer}
 .msg{font-size:14px;margin-top:8px}
 .msg.bad{color:var(--up)} .msg.good{color:var(--down)}
+.stop1{font-size:12px;font-weight:600;border-radius:999px;padding:1px 8px;background:color-mix(in srgb,#0284c7 15%,transparent);color:#0369a1}
+@media (prefers-color-scheme:dark){.stop1{color:#7dd3fc}}
+.gone1{display:block;font-size:11px;font-weight:600;color:#0369a1}
+@media (prefers-color-scheme:dark){.gone1{color:#7dd3fc}}
 .skip{font-size:12px;font-weight:600;border-radius:999px;padding:1px 8px;background:color-mix(in srgb,#c026d3 14%,transparent);color:#a21caf}
 @media (prefers-color-scheme:dark){.skip{color:#f0abfc}}
 </style>
@@ -187,7 +191,7 @@ function table(legs, dir) {
       const i = trip.legs.indexOf(l), on = open === i ? " on" : "";
       if (!l.checked_at) return `<td class="num muted${on}">soon</td>`;
       if (l.price == null) return `<td class="num${on}"><button data-open="${i}" class="${l.last_price != null ? "gone" : "na"}">${l.last_price != null ? "GONE" : "N/A"}</button></td>`;
-      return `<td class="num${prices.length > 1 && l.price === min ? " best" : ""}${on}"><button data-open="${i}" class="${moveClass(l)}" title="${esc(bagNote(l))}">${moveDot(l)}$${l.price}${bagNote(l) ? '<span class="bagflag" aria-label="bag fee not included">*</span>' : ""}</button>${l.skip ? `<span class="gsk">skip $${l.skip.price}</span>` : ""}</td>`;
+      return `<td class="num${prices.length > 1 && l.price === min ? " best" : ""}${on}"><button data-open="${i}" class="${moveClass(l)}" title="${esc(bagNote(l))}">${moveDot(l)}$${l.price}${bagNote(l) ? '<span class="bagflag" aria-label="bag fee not included">*</span>' : ""}</button>${l.skip ? `<span class="gsk">skip $${l.skip.price}</span>` : ""}${l.onestop ? `<span class="gone1">1 stop $${l.onestop.price}</span>` : ""}</td>`;
     }).join("")}</tr>`;
   }).join("")}</tbody></table></div>`;
 }
@@ -217,6 +221,7 @@ function detail(i) {
     ${seen.length ? `<div style="margin-top:8px" class="small">${sparkline([...hist.map(p => p[1]), l.price])} <span class="muted">Low $${Math.min(...seen)} · High $${Math.max(...seen)} since tracking began</span></div>` : ""}
     ${others.length > 1 ? `<div class="small" style="margin-top:8px">${others.map(([a, p]) => `${esc(a)} $${p}`).join(" · ")}</div>` : ""}
     ${bagNote(l) ? `<div class="bagnote">⚠ ${esc(bagNote(l))}</div>` : ""}
+    ${l.onestop ? `<div class="skipnote"><span class="stop1">1 stop</span> <b>$${l.onestop.price}</b>${l.price != null ? ` <span class="muted">($${l.price - l.onestop.price} less)</span>` : ""} · ${esc(l.onestop.airline)} ${esc(timeLabel(l.onestop.departs))} · changes planes in ${esc(l.onestop.via)}, ${Math.floor(l.onestop.layover / 60)}h ${String(l.onestop.layover % 60).padStart(2, "0")}m between flights${l.onestop.arrives ? ` · arrives ${esc(timeLabel(l.onestop.arrives))}` : ""}</div>` : ""}
     ${s ? `<div class="skipnote"><span class="skip">Skiplagged</span> <b>$${s.price}</b> · ${esc(s.airline)}${s.departs ? ` ${esc(timeLabel(s.departs))}` : ""} · a ticket to ${esc(s.final)} that stops in ${esc(l.d)}; you'd get off there. Carry-on only, and don't book the return on the same ticket.${s.international ? " International ticket: passport needed." : ""}</div>` : ""}
     <div class="small" style="margin-top:10px"><a href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">See it on Google Flights ↗</a>${l.checked_at ? ` <span class="muted">· checked ${esc(ago(l.checked_at))}</span>` : ""}</div>
     ${hist.length ? `<details><summary>Price history</summary><table><tbody>${hist.slice().reverse().map(p => `<tr><td>${esc(when(p[0]))}</td><td class="num">${p[1] == null ? "no nonstops" : "$" + p[1]}</td></tr>`).join("")}</tbody></table></details>` : ""}
@@ -278,7 +283,7 @@ function render() {
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
     ${pick && !pick.going ? detail(open) : ""}${table(back, "Coming back")}
     ${trip.legs.some(l => bagNote(l)) ? `<p class="small" style="margin-top:14px;color:var(--up)">* The airline's bag fee isn't included in that price: Google doesn't have it for ${esc([...new Set(trip.legs.flatMap(l => Object.keys(l.bagless || {})))].join(", "))}. Check the airline's own site.</p>` : ""}
-    <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
+    <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Blue "1 stop" = a cheaper fare with one connection. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
 }
 document.addEventListener("click", e => {
   const b = e.target.closest("button");
