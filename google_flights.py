@@ -147,7 +147,9 @@ def feed_search(depart, origins, dests, adults=1, carry_on=0, checked=0, max_sto
     segment = [[[[a, 0] for a in origins]], [[[a, 0] for a in dests]], None, stops, None, None,
                depart, None, None, list(via) or None, None, None, None, None, 3]
     main = ([None, None, 2, None, [], 1, [adults, 0, 0, 0], None, None, None,
-             [checked, carry_on] if carry_on or checked else None, None, None, [segment]]
+             # Bags: carry-on first, then checked. The other way round Google ignored the field,
+             # so fares came back without the bag fee (checked against its own page, 2026-09-22).
+             [carry_on, checked] if carry_on or checked else None, None, None, [segment]]
             + [None] * 3 + [1] + [None] * 10 + [0])
     body = [[], main, 2, 1, 0, 1]  # 2 = cheapest first, 1 = all results
     data = "f.req=" + urllib.parse.quote(json.dumps([None, json.dumps(body, separators=(",", ":"))],

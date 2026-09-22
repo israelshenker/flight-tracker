@@ -44,6 +44,12 @@ def feed(bags_at, value, adults=1):
     return sorted(out)[:2]
 
 
+def through_feed_search(adults, carry, checked=0):
+    t = [x for x in g.feed_search(ROUTE[0], [ROUTE[1]], [ROUTE[2]], adults, carry, checked, max_stops=1)
+         if len(x["legs"]) == 2]
+    return sorted((x["price"], x["airline"]) for x in t)[:2]
+
+
 TRIES = [("no bags", None, None),
          ("10=[checked,carry] (what we send now)", 10, [0, 1]),
          ("10=[carry,checked]", 10, [1, 0]),
@@ -56,6 +62,9 @@ TRIES = [("no bags", None, None),
          ("12=[checked,carry]", 12, [0, 1])]
 
 if __name__ == "__main__":
+    for adults in (1, 4):
+        for carry in (0, 1):
+            print(f"feed_search adults={adults} carry_on={carry}: {through_feed_search(adults, carry)}")
     for label, at, value in TRIES:
         try:
             print(f"{label}: {feed(at, value)}")

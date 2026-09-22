@@ -1029,10 +1029,10 @@ def watch_key(w):
     return key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))
 
 
-def google_link(w, adults):
+def google_link(w, adults, max_stops=0):
     o = parse_options(options_code(w))
     tfs = google_flights.build_tfs(w["depart"], [w["origin"]], [w["dest"]], w.get("return", ""),
-                                   o["adults"] or adults, o["carry_on"], o["checked"])
+                                   o["adults"] or adults, o["carry_on"], o["checked"], max_stops)
     return f"{google_flights.URL}/search?" + urllib.parse.urlencode({"tfs": tfs, "hl": "en", "curr": "USD"})
 
 
@@ -1059,7 +1059,7 @@ def trip_legs(cfg, latest, t, trails):
                "times": (e.get("times") or {}).get(e.get("airline"), []),
                "airlines": e.get("airlines") or {}, "moves": e.get("moves") or [],
                "history": [p for p in trails.get(k, []) if p[0] <= (e.get("checked_at") or "9999")],
-               "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults),
+               "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults), "link1": google_link(w, adults, 1),
                "bagless": e.get("bagless") or {},
                "onestop": e.get("onestop") if e.get("onestop") and e.get("price") and e["onestop"]["price"] < e["price"]
                           and k not in onestop_off else None}
