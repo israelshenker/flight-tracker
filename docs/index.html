@@ -1204,12 +1204,11 @@ function topScrollbars() {
 
 // Calendar / list switch that stays in the corner while scrolling (user's request).
 function renderViewSwitch() {
-  const b = $("viewSwitch"), bar = document.querySelector("#list .toolbar");
-  // Only once the toolbar (which has its own switch) is off screen.
-  b.hidden = selectMode || !tracked().length || !bar || bar.getBoundingClientRect().bottom > 0;
+  const b = $("viewSwitch");
+  b.hidden = selectMode || !tracked().length;  // always floating at the top otherwise (user's choice)
   b.textContent = compareMode ? "List view" : "Calendar view";
 }
-addEventListener("scroll", () => renderViewSwitch(), {passive: true});
+
 $("viewSwitch").onclick = () => { compareMode = !compareMode; alertView = null; render(); window.scrollTo({top: 0}); };
 
 // ---------- run status ----------
