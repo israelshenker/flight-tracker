@@ -579,12 +579,12 @@ function ticketLink(w, h) {
   return googleSearchLink({depart: w.depart, from: w.origin, to: h.final, stops: h.stops || 1, via: [w.dest, ...(h.via || [])],
     airlines: h.flights?.[0] ? [h.flights[0].slice(0, 2)] : [], timeFrom: +h.departs.slice(0, 2), timeTo: +h.departs.slice(0, 2) + 1, carry: o.carry_on, checked: 0, adults: o.adults});
 }
-// The same search on Google Flights: one stop, through that connection, same airline.
-function oneStopLink(w, one) {
+// Every flight with at most one stop on this route, same bags, times and passengers — not
+// narrowed to the airline or the connection we found, so all the options show (user's request).
+function oneStopLink(w) {
   const o = parseOpts(optsCode(w));
-  return googleSearchLink({depart: w.depart, from: w.origin, to: w.dest, stops: 1, via: [one.via],
-    airlines: one.flights?.[0] ? [one.flights[0].slice(0, 2)] : [], timeFrom: o.time_from, timeTo: o.time_to,
-    carry: o.carry_on, checked: o.checked, adults: o.adults});
+  return googleSearchLink({depart: w.depart, ret: w.return, from: w.origin, to: w.dest, stops: 1, via: [],
+    airlines: [], timeFrom: o.time_from, timeTo: o.time_to, carry: o.carry_on, checked: o.checked, adults: o.adults});
 }
 function googleSearchLink(q) {
   const o = {time_from: q.timeFrom || 0, time_to: q.timeTo ?? 24, carry_on: q.carry || 0, checked: q.checked || 0}, bytes = [];
@@ -1158,7 +1158,7 @@ function render() {
         ${(() => {
           const one = oneFare(cur, w);
           if (!one) return "";
-          return `<div class="skiprow"><span class="stop1">1 stop</span> <b>$${one.price}</b> <span class="muted">($${cur.price - one.price} less)</span> · ${esc(one.airline)} ${esc(timeLabel(one.departs))} via <b>${esc(CITY[one.via] ? `${CITY[one.via]} (${one.via})` : one.via)}</b> · ${esc(layoverLabel(one.layover))}${one.arrives ? ` · arrives ${esc(timeLabel(one.arrives))}` : ""}${one.flights?.length ? ` · flights ${esc(one.flights.map(flightLabel).join(" + "))}` : ""} · <a href="${oneStopLink(w, one)}" target="_blank" rel="noopener">see this 1-stop fare on Google Flights ↗</a></div>`;
+          return `<div class="skiprow"><span class="stop1">1 stop</span> <b>$${one.price}</b> <span class="muted">($${cur.price - one.price} less)</span> · ${esc(one.airline)} ${esc(timeLabel(one.departs))} via <b>${esc(CITY[one.via] ? `${CITY[one.via]} (${one.via})` : one.via)}</b> · ${esc(layoverLabel(one.layover))}${one.arrives ? ` · arrives ${esc(timeLabel(one.arrives))}` : ""}${one.flights?.length ? ` · flights ${esc(one.flights.map(flightLabel).join(" + "))}` : ""} · <a href="${oneStopLink(w)}" target="_blank" rel="noopener">1-stop flights on Google Flights ↗</a></div>`;
         })()}
         ${(() => {
           const h = skipFare(cur, w);

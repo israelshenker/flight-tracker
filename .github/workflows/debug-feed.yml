@@ -1,0 +1,19 @@
+name: Debug feed prices
+on: workflow_dispatch
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: {python-version: "3.12"}
+      - run: pip install -r requirements.txt
+      - run: |
+          python - <<'PY'
+          import google_flights as g
+          for adults in (1, 4):
+              for carry in (0, 1):
+                  t = [x for x in g.feed_search('2026-12-02', ['FLL'], ['PHL'], adults, carry, 0, max_stops=1) if len(x['legs']) == 2]
+                  best = sorted((x['price'], x['airline']) for x in t)[:2]
+                  print(f"adults={adults} carry_on={carry}: {best}")
+          PY
