@@ -780,12 +780,13 @@ function tripBestHtml() {
     if (!cur || cur.price == null) return null;
     const one = oneFare(cur, w), skip = skipFare(cur, w);
     const cheapest = sortBest ? Math.min(cur.price, one?.price ?? Infinity, skip?.price ?? Infinity) : cur.price;
-    return {w, cur, price: cheapest, kind: cheapest === cur.price ? "nonstop" : cheapest === one?.price ? "1 stop" : "skiplagged"};
+    const kind = cheapest === cur.price ? "nonstop" : cheapest === one?.price ? "1 stop" : "skiplagged";
+    return {w, cur, price: cheapest, kind, airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : cur.airline};
   }).filter(Boolean).sort((a, b) => a.price - b.price)[0];
   const out = best(true), back = best(false);
   if (!out) return "";
   const leg = (x, label) => `<div class="cline" style="gap:8px"><span class="tag">${label}</span><a href="#r=${encodeURIComponent(wKey(x.w))}" data-open-route="${esc(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
-    <span class="muted small">${esc(niceDate(x.w.depart))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.cur.airline ? ` · ${esc(x.cur.airline)}` : ""}</span><b style="margin-left:auto">$${x.price}</b></div>`;
+    <span class="muted small">${esc(niceDate(x.w.depart))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto">$${x.price}</b></div>`;
   return `<div class="card" style="border-color:var(--accent)">
     <div class="row" style="margin:0 0 6px"><b>Cheapest ${back ? "round trip" : "flight"} for ${esc(t.name)}</b><b style="margin-left:auto;font-size:18px">$${out.price + (back?.price || 0)}${back ? " total per person" : ""}</b></div>
     ${leg(out, "Going")}${back ? leg(back, "Coming back") : ""}
