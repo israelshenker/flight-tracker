@@ -105,6 +105,10 @@ def parse(html):
                 continue
             if price is None or not legs:
                 continue
+            # item[5] = [any bag data missing, checked-bag fee not added, carry-on fee not added]
+            # (Google's "?" bag badge: "May not include carry-on bags"). Checked on
+            # Allegiant (both missing) and Frontier (checked missing, carry-on fine).
+            bags = item[5] if len(item) > 5 and isinstance(item[5], list) else []
             seg = legs[0]
             hour, minute = ([*(seg[8] or []), None, None])[:2]
             out.append({
@@ -116,6 +120,8 @@ def parse(html):
                 "final": legs[-1][6],
                 "flights": len(legs),
                 "flight": flight_id(seg),
+                "no_carry_fee": bool(len(bags) > 2 and bags[2]),
+                "no_checked_fee": bool(len(bags) > 1 and bags[1]),
             })
     return out
 

@@ -69,6 +69,8 @@ input[type=number]{width:100px}
 .spark{color:var(--accent)}
 .price.up{color:var(--up)}
 .price.down{color:var(--down)}
+.bagnote{margin-top:8px;font-size:13px;color:var(--up)}
+.bagflag{color:var(--up);font-weight:700}
 .movedot{display:inline-block;width:.45em;height:.45em;border-radius:50%;background:#7c3aed;margin-right:.3em;vertical-align:.15em}
 .badge{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px}
 .badge.up{color:var(--up);background:color-mix(in srgb,var(--up) 12%,transparent)}
@@ -646,7 +648,7 @@ function compareHtml(watches) {
       continue;
     }
     const skip = skipFare(cur, w)?.price;
-    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur, w)};
+    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur, w), bag: bagNote(cur)};
     else if (skip && (!r[w.depart].skip || skip < r[w.depart].skip)) r[w.depart].skip = skip;
     rows.set(`${w.origin}-${w.dest}`, r);
   }
@@ -694,7 +696,7 @@ function compareHtml(watches) {
           if (c.na && c.gone) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="gone" title="${esc(`Had nonstop fares${c.gone.at ? " until " + when(c.gone.at) : ""} (last $${c.gone.price}${c.gone.low ? `, lowest $${c.gone.low}` : ""}); none found on the latest check`)}">GONE</a>${c.gone.price != null ? `<span class="wasprice">$${c.gone.price}</span>` : ""}</td>`;
           if (c.na) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="na" title="Tracked, but no nonstop flights were found on the latest check">N/A</a></td>`;
           const sk = c.skip && c.skip < c.price ? c.skip : null;
-          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc([c.airline, c.tip].filter(Boolean).join(" · "))}" class="${c.cls.trim()}">${c.dot}$${c.price}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
+          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc([c.airline, c.tip, c.bag].filter(Boolean).join(" · "))}" class="${c.cls.trim()}">${c.dot}$${c.price}${c.bag ? '<span class="bagflag">*</span>' : ""}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}</td>`;
         }).join("")}</tr>`;
       }).join("")}</tbody></table></div>`;
   }
@@ -942,6 +944,12 @@ function cheapestShort(cur) {
 }
 
 const CITY = {HNL:"Honolulu",OGG:"Maui",OAK:"Oakland",BUR:"Burbank",LGB:"Long Beach",ONT:"Ontario, CA",ABQ:"Albuquerque",TUS:"Tucson",ELP:"El Paso",BOI:"Boise",DAL:"Dallas Love Field",AVL:"Asheville",ILM:"Wilmington, NC",CHA:"Chattanooga",CHO:"Charlottesville",ROA:"Roanoke",DSM:"Des Moines",MSN:"Madison",OKC:"Oklahoma City",TUL:"Tulsa",LIT:"Little Rock",XNA:"Northwest Arkansas",ICT:"Wichita",BQN:"Aguadilla",PSE:"Ponce",ACK:"Nantucket",MVY:"Martha's Vineyard",PIE:"St. Pete–Clearwater",PGD:"Punta Gorda",VPS:"Destin–Fort Walton Beach",ECP:"Panama City Beach",GNV:"Gainesville",DAB:"Daytona Beach",LHR:"London Heathrow",DUB:"Dublin",KIN:"Kingston",POS:"Port of Spain",GND:"Grenada",ANU:"Antigua",BZE:"Belize City",RTB:"Roatán",SAP:"San Pedro Sula",MGA:"Managua",CZM:"Cozumel",SJD:"Los Cabos",SCL:"Santiago",EZE:"Buenos Aires",UIO:"Quito",GYE:"Guayaquil",CHS:"Charleston",SAV:"Savannah",MYR:"Myrtle Beach",GSP:"Greenville–Spartanburg",CAE:"Columbia, SC",JAX:"Jacksonville",DAY:"Dayton",OMA:"Omaha",MEM:"Memphis",BHM:"Birmingham",TYS:"Knoxville",SAT:"San Antonio",PDX:"Portland, OR",SJC:"San Jose, CA",SNA:"Orange County",SMF:"Sacramento",BGR:"Bangor",ITH:"Ithaca",MDT:"Harrisburg",ABE:"Allentown",CLT:"Charlotte",GRU:"São Paulo",MHT:"Manchester",MDW:"Chicago Midway",CMH:"Columbus",CVG:"Cincinnati",IND:"Indianapolis",GRR:"Grand Rapids",MKE:"Milwaukee",MSP:"Minneapolis",STL:"St. Louis",MCI:"Kansas City",DEN:"Denver",GSO:"Greensboro",RIC:"Richmond",ORF:"Norfolk",IAD:"Washington Dulles",BWI:"Baltimore",BNA:"Nashville",SDF:"Louisville",AUS:"Austin",PHX:"Phoenix",LAS:"Las Vegas",LAX:"Los Angeles",SFO:"San Francisco",SEA:"Seattle",SAN:"San Diego",SLC:"Salt Lake City",SRQ:"Sarasota",PNS:"Pensacola",TLH:"Tallahassee",CHS:"Charleston",HOU:"Houston Hobby",STX:"St. Croix",YHZ:"Halifax",YQB:"Quebec City",AUA:"Aruba",CUR:"Curacao",SXM:"St. Maarten",BGI:"Barbados",PTY:"Panama City",SJO:"San Jose, Costa Rica",BOG:"Bogota",MDE:"Medellin",GUA:"Guatemala City",SAL:"San Salvador",LIM:"Lima",HAV:"Havana",PLS:"Providenciales",UVF:"St. Lucia",BOS:"Boston",BUF:"Buffalo",ROC:"Rochester",SYR:"Syracuse",ALB:"Albany",BTV:"Burlington",PWM:"Portland, ME",BDL:"Hartford",PVD:"Providence",PIT:"Pittsburgh",CLE:"Cleveland",DTW:"Detroit",ORD:"Chicago",RDU:"Raleigh",CLT:"Charlotte",DCA:"Washington",TPA:"Tampa",JAX:"Jacksonville",RSW:"Fort Myers",SAV:"Savannah",EYW:"Key West",MCO:"Orlando",MSY:"New Orleans",SJU:"San Juan",STT:"St. Thomas",IAH:"Houston",DFW:"Dallas",ATL:"Atlanta",YYZ:"Toronto",YUL:"Montreal",YOW:"Ottawa",NAS:"Nassau",CUN:"Cancun",MBJ:"Montego Bay",SDQ:"Santo Domingo",PUJ:"Punta Cana",GCM:"Grand Cayman"};
+// Google couldn't add these airlines' bag fees to the fare (its "?" bag badge), so the price
+// is missing them: e.g. Allegiant's carry-on. tracker.py stores this as `bagless` per route.
+function bagNote(cur) {
+  const bad = Object.entries(cur?.bagless || {});
+  return bad.length ? bad.map(([a, what]) => `${a}: the ${what} fee isn't in this price (Google doesn't have it) — check ${a}'s site`).join("; ") : "";
+}
 const skiplaggedLink = w => `https://skiplagged.com/flights/${w.origin}/${w.dest}/${w.depart}${w.return ? "/" + w.return : ""}`;
 // The route's skiplagged fare, only when it beats the cheapest nonstop.
 // Fare colors compare the nonstop fare with 24 hours before the latest check (tracker's `moves`:
@@ -1127,6 +1135,7 @@ function render() {
           const city = CITY[h.final] ? `${CITY[h.final]} (${h.final})` : h.final;
           return `<div class="skiprow"><span class="skip">Skiplagged</span> <b>$${h.price}</b>${cur.price ? ` <span class="muted">($${cur.price - h.price} less)</span>` : ""} · ${esc(h.airline)} ${esc(timeLabel(h.departs))} · book a ticket to <b>${esc(city)}</b>${h.stops === 2 && h.via?.length ? ` (it stops again in ${esc(CITY[h.via[0]] || h.via[0])})` : ""} and get off at ${esc(w.dest)}${h.international ? ' · <span style="color:var(--up)">international: passport needed</span>' : ""} · carry-on only${h.flights?.length ? ` · flights ${esc(h.flights.map(flightLabel).join(" + "))}` : ""} · <a href="${ticketLink(w, h)}" target="_blank" rel="noopener">see this ticket on Google Flights ↗</a>${h.international ? "" : ` · <a href="https://skiplagged.com/flights/${w.origin}/${w.dest}/${w.depart}" target="_blank" rel="noopener">Skiplagged ↗</a>`}${h.international ? '<div class="muted small">Skiplagged.com doesn\'t list international hidden-city tickets, so use the Google Flights link for this one.</div>' : ""}</div>`;
         })()}
+        ${bagNote(cur) ? `<div class="bagnote">⚠ ${esc(bagNote(cur))}</div>` : ""}
         <div class="tablewrap"><table class="airlines"><thead><tr><th>Airline</th><th class="num">Lowest fare</th><th>Departs at that fare</th></tr></thead><tbody>${airlines}</tbody></table></div>
         <div class="mid">${sparkline(lows)}<span class="muted small">${lowHigh}</span>${badge}
           <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="stop" data-edit="${esc(k)}">Edit bags, times, alert</button><button class="stop" data-stop="${esc(k)}">Stop tracking</button></span></div>

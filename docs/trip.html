@@ -55,6 +55,8 @@ details{margin-top:10px}
 summary{cursor:pointer;color:var(--accent);font-size:14px}
 .empty{text-align:center;padding:40px 10px}
 .skipnote{margin-top:10px;font-size:14px;line-height:1.6}
+.bagnote{margin-top:10px;font-size:13px;color:var(--up)}
+.bagflag{color:var(--up);font-weight:700}
 .signup{margin-top:14px}
 .signup .opts{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:10px 0}
 .signup label{display:flex;gap:6px;align-items:center;font-size:14px}
@@ -182,7 +184,7 @@ function table(legs, dir) {
       const i = trip.legs.indexOf(l), on = open === i ? " on" : "";
       if (!l.checked_at) return `<td class="num muted${on}">soon</td>`;
       if (l.price == null) return `<td class="num${on}"><button data-open="${i}" class="${l.last_price != null ? "gone" : "na"}">${l.last_price != null ? "GONE" : "N/A"}</button></td>`;
-      return `<td class="num${prices.length > 1 && l.price === min ? " best" : ""}${on}"><button data-open="${i}" class="${moveClass(l)}">${moveDot(l)}$${l.price}</button>${l.skip ? `<span class="gsk">skip $${l.skip.price}</span>` : ""}</td>`;
+      return `<td class="num${prices.length > 1 && l.price === min ? " best" : ""}${on}"><button data-open="${i}" class="${moveClass(l)}" title="${esc(bagNote(l))}">${moveDot(l)}$${l.price}${bagNote(l) ? '<span class="bagflag" aria-label="bag fee not included">*</span>' : ""}</button>${l.skip ? `<span class="gsk">skip $${l.skip.price}</span>` : ""}</td>`;
     }).join("")}</tr>`;
   }).join("")}</tbody></table></div>`;
 }
@@ -211,6 +213,7 @@ function detail(i) {
     ${badges.length ? `<div style="margin-top:8px">${badges.join("")}</div>` : ""}
     ${seen.length ? `<div style="margin-top:8px" class="small">${sparkline([...hist.map(p => p[1]), l.price])} <span class="muted">Low $${Math.min(...seen)} · High $${Math.max(...seen)} since tracking began</span></div>` : ""}
     ${others.length > 1 ? `<div class="small" style="margin-top:8px">${others.map(([a, p]) => `${esc(a)} $${p}`).join(" · ")}</div>` : ""}
+    ${bagNote(l) ? `<div class="bagnote">⚠ ${esc(bagNote(l))}</div>` : ""}
     ${s ? `<div class="skipnote"><span class="skip">Skiplagged</span> <b>$${s.price}</b> · ${esc(s.airline)}${s.departs ? ` ${esc(timeLabel(s.departs))}` : ""} · a ticket to ${esc(s.final)} that stops in ${esc(l.d)}; you'd get off there. Carry-on only, and don't book the return on the same ticket.${s.international ? " International ticket: passport needed." : ""}</div>` : ""}
     <div class="small" style="margin-top:10px"><a href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">See it on Google Flights ↗</a>${l.checked_at ? ` <span class="muted">· checked ${esc(ago(l.checked_at))}</span>` : ""}</div>
     ${hist.length ? `<details><summary>Price history</summary><table><tbody>${hist.slice().reverse().map(p => `<tr><td>${esc(when(p[0]))}</td><td class="num">${p[1] == null ? "no nonstops" : "$" + p[1]}</td></tr>`).join("")}</tbody></table></details>` : ""}
@@ -248,15 +251,30 @@ async function post(req) {
 }
 function say(text, good) { const m = $("signupMsg"); if (m) { m.className = "msg " + (good ? "good" : "bad"); m.textContent = text; } }
 
+// People reading a shared trip often don't know airport codes, so list the ones used here.
+function airportKey() {
+  const codes = [...new Set(trip.legs.flatMap(l => [l.o, l.d]))].sort();
+  const named = codes.filter(c => trip.names?.[c]);
+  if (!named.length) return "";
+  return `<p class="small muted" style="margin:8px 0 0">Airports: ${named.map(c => `<b>${esc(c)}</b> ${esc(trip.names[c])}`).join(" · ")}</p>`;
+}
+// Google can't add some airlines' bag fees (e.g. Allegiant's carry-on), and flags those fares.
+function bagNote(l) {
+  const bad = Object.entries(l.bagless || {});
+  if (!bad.length) return "";
+  return bad.map(([a, what]) => `${a}: the ${what} fee isn't included in this price — check ${a}'s own site`).join("; ");
+}
 function render() {
   const going = trip.legs.filter(l => l.going), back = trip.legs.filter(l => !l.going);
   const pick = open != null && trip.legs[open];
   $("app").innerHTML = `<h1>${esc(trip.name || "Trip")}</h1>
     <div class="muted small">${trip.person ? `For ${esc(trip.person)} · ` : ""}Cheapest nonstop fare per person · updated ${esc(ago(trip.updated))} · checked about every hour</div>
+    ${airportKey()}
     ${signupHtml()}
     ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
     ${pick && !pick.going ? detail(open) : ""}${table(back, "Coming back")}
+    ${trip.legs.some(l => bagNote(l)) ? `<p class="small" style="margin-top:14px;color:var(--up)">* The airline's bag fee isn't included in that price: Google doesn't have it for ${esc([...new Set(trip.legs.flatMap(l => Object.keys(l.bagless || {})))].join(", "))}. Check the airline's own site.</p>` : ""}
     <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
 }
 document.addEventListener("click", e => {

@@ -97,6 +97,8 @@ SECOND_STOPS = ["CLE", "ORD", "IAD", "DTW", "CLT", "BOS", "PIT", "BUF", "PHL", "
 # is decided by which side of this line each leg starts on.
 FLORIDA = {"FLL", "DJT", "PBI", "MIA", "MCO", "SFB", "MLB", "RSW", "APF", "TPA", "JAX", "SRQ", "PIE", "PGD",
            "EYW", "MTH", "PNS", "VPS", "ECP", "TLH", "GNV", "DAB", "LAL", "OCF", "BOW"}
+# Airport names for the friends-and-family pages (they see codes they may not know).
+AIRPORT_NAMES = {"ABE": "Allentown", "ABQ": "Albuquerque", "ACK": "Nantucket", "ACY": "Atlantic City", "ALB": "Albany", "ANU": "Antigua", "APF": "Naples", "ATL": "Atlanta", "AUA": "Aruba", "AUS": "Austin", "AVL": "Asheville", "BDL": "Hartford", "BGI": "Barbados", "BGR": "Bangor", "BHM": "Birmingham", "BNA": "Nashville", "BOG": "Bogota", "BOI": "Boise", "BOS": "Boston", "BOW": "Bartow", "BQN": "Aguadilla", "BTV": "Burlington", "BUF": "Buffalo", "BUR": "Burbank", "BWI": "Baltimore", "BZE": "Belize City", "CAE": "Columbia, SC", "CHA": "Chattanooga", "CHO": "Charlottesville", "CHS": "Charleston", "CLE": "Cleveland", "CLT": "Charlotte", "CMH": "Columbus", "CUN": "Cancun", "CUR": "Curacao", "CVG": "Cincinnati", "CZM": "Cozumel", "DAB": "Daytona Beach", "DAL": "Dallas Love Field", "DAY": "Dayton", "DCA": "Washington", "DEN": "Denver", "DFW": "Dallas", "DJT": "Palm Beach", "DSM": "Des Moines", "DTW": "Detroit", "DUB": "Dublin", "ECP": "Panama City Beach", "ELP": "El Paso", "EWR": "Newark", "EYW": "Key West", "EZE": "Buenos Aires", "FLL": "Fort Lauderdale", "GCM": "Grand Cayman", "GND": "Grenada", "GNV": "Gainesville", "GRR": "Grand Rapids", "GRU": "S\u00e3o Paulo", "GSO": "Greensboro", "GSP": "Greenville\u2013Spartanburg", "GUA": "Guatemala City", "GUM": "Guam", "GYE": "Guayaquil", "HAV": "Havana", "HNL": "Honolulu", "HOU": "Houston Hobby", "HPN": "White Plains", "IAD": "Washington Dulles", "IAH": "Houston", "ICT": "Wichita", "ILM": "Wilmington, NC", "IND": "Indianapolis", "ISP": "Islip", "ITH": "Ithaca", "JAX": "Jacksonville", "JFK": "New York JFK", "KIN": "Kingston", "LAL": "Lakeland", "LAS": "Las Vegas", "LAX": "Los Angeles", "LGA": "New York LaGuardia", "LGB": "Long Beach", "LHR": "London Heathrow", "LIM": "Lima", "LIT": "Little Rock", "MBJ": "Montego Bay", "MCI": "Kansas City", "MCO": "Orlando", "MDE": "Medellin", "MDT": "Harrisburg", "MDW": "Chicago Midway", "MEM": "Memphis", "MGA": "Managua", "MHT": "Manchester", "MIA": "Miami", "MKE": "Milwaukee", "MLB": "Melbourne", "MSN": "Madison", "MSP": "Minneapolis", "MSY": "New Orleans", "MTH": "Marathon", "MVY": "Martha's Vineyard", "MYR": "Myrtle Beach", "NAS": "Nassau", "OAK": "Oakland", "OCF": "Ocala", "OGG": "Maui", "OKC": "Oklahoma City", "OMA": "Omaha", "ONT": "Ontario, CA", "ORD": "Chicago", "ORF": "Norfolk", "PBI": "Palm Beach", "PDX": "Portland, OR", "PGD": "Punta Gorda", "PHL": "Philadelphia", "PHX": "Phoenix", "PIE": "St. Pete\u2013Clearwater", "PIT": "Pittsburgh", "PLS": "Providenciales", "PNS": "Pensacola", "POS": "Port of Spain", "PSE": "Ponce", "PTY": "Panama City", "PUJ": "Punta Cana", "PVD": "Providence", "PWM": "Portland, ME", "RDU": "Raleigh", "RIC": "Richmond", "ROA": "Roanoke", "ROC": "Rochester", "RSW": "Fort Myers", "RTB": "Roat\u00e1n", "SAL": "San Salvador", "SAN": "San Diego", "SAP": "San Pedro Sula", "SAT": "San Antonio", "SAV": "Savannah", "SCL": "Santiago", "SDF": "Louisville", "SDQ": "Santo Domingo", "SEA": "Seattle", "SFB": "Orlando Sanford", "SFO": "San Francisco", "SJC": "San Jose, CA", "SJD": "Los Cabos", "SJO": "San Jose, Costa Rica", "SJU": "San Juan", "SLC": "Salt Lake City", "SMF": "Sacramento", "SNA": "Orange County", "SPN": "Saipan", "SRQ": "Sarasota", "STL": "St. Louis", "STT": "St. Thomas", "STX": "St. Croix", "SWF": "Newburgh", "SXM": "St. Maarten", "SYR": "Syracuse", "TLH": "Tallahassee", "TPA": "Tampa", "TTN": "Trenton", "TUL": "Tulsa", "TUS": "Tucson", "TYS": "Knoxville", "UIO": "Quito", "UVF": "St. Lucia", "VPS": "Destin\u2013Fort Walton Beach", "XNA": "Northwest Arkansas", "YHZ": "Halifax", "YOW": "Ottawa", "YQB": "Quebec City", "YUL": "Montreal", "YYZ": "Toronto"}
 TRIP_PAGES = HERE / "docs" / "t"  # one locked file per shared trip, read by docs/trip.html
 HISTORY_HEADER = ["checked_at", "origin", "destination", "depart", "return", "price", "airline", "options"]
 
@@ -326,7 +328,7 @@ def fares_for(route, itineraries):
     flight), the departure times at that fare, and every matching flight for the page."""
     o, d, _, _, opts = route
     opt = parse_options(opts)
-    airlines, times, flights = {}, {}, {}
+    airlines, times, flights, missing = {}, {}, {}, {}
     for it in itineraries:
         if (CODE_ALIASES.get(it["origin"], it["origin"]), CODE_ALIASES.get(it["dest"], it["dest"])) != (o, d):
             continue
@@ -335,13 +337,19 @@ def fares_for(route, itineraries):
         fid = it.get("flight") or f'{it["airline"]} {it["departs"]}'
         if it["price"] < flights.get(fid, {}).get("price", 10**9):
             flights[fid] = {"flight": it.get("flight", ""), "airline": it["airline"], "departs": it["departs"], "price": it["price"]}
+        # Google couldn't add this airline's bag fee, so the fare is missing it (see parse()).
+        if (opt["carry_on"] and it.get("no_carry_fee")) or (opt["checked"] and it.get("no_checked_fee")):
+            missing[it["airline"]] = "carry-on" if opt["carry_on"] and it.get("no_carry_fee") else "checked bag"
         a, p = it["airline"], it["price"]
         if p < airlines.get(a, 10**9):
             airlines[a], times[a] = p, []
         if p == airlines[a] and it["departs"] not in times[a]:
             times[a].append(it["departs"])
-    return {"airlines": airlines, "times": {a: sorted(t) for a, t in times.items()},
-            "flights": sorted(flights.values(), key=lambda f: f["departs"])}
+    out = {"airlines": airlines, "times": {a: sorted(t) for a, t in times.items()},
+           "flights": sorted(flights.values(), key=lambda f: f["departs"])}
+    if missing:
+        out["bagless"] = {a: w for a, w in missing.items() if a in airlines}
+    return out
 
 
 def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
@@ -867,6 +875,8 @@ def entry(stamp, f, prev=None):
     lows = [p for p in ((prev or {}).get("low"), (prev or {}).get("price"), e["price"]) if p]
     if lows:
         e["low"] = min(lows)  # lowest fare seen since tracking started
+    if f.get("bagless"):
+        e["bagless"] = f["bagless"]  # airlines whose bag fee Google couldn't add to the fare
     if f.get("one_ways"):
         e["one_ways"] = f["one_ways"]
     # A skiplagged pass that didn't run this time keeps its last result.
@@ -929,7 +939,8 @@ def trip_legs(cfg, latest, t, trails):
                "times": (e.get("times") or {}).get(e.get("airline"), []),
                "airlines": e.get("airlines") or {}, "moves": e.get("moves") or [],
                "history": [p for p in trails.get(k, []) if p[0] <= (e.get("checked_at") or "9999")],
-               "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults)}
+               "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults),
+               "bagless": e.get("bagless") or {}}
         h = e.get("hidden")
         if (t.get("skiplagged") and h and cfg.get("skiplagged", True) and k not in no_skip
                 and not (h.get("international") and not is_international(w["dest"])
@@ -954,7 +965,9 @@ def write_trip_pages(cfg, latest):
             snap = {"v": 1, "name": t.get("name", ""), "person": t.get("person", ""),
                     "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "skiplagged": bool(t.get("skiplagged")), "legs": trip_legs(cfg, latest, t, trails),
+                    "names": {},
                     "signup": cfg.get("signup_topic")}  # where the page's "Email me updates" form posts (see friends.py)
+            snap["names"] = {c: AIRPORT_NAMES[c] for leg in snap["legs"] for c in (leg["o"], leg["d"]) if c in AIRPORT_NAMES}
             iv = os.urandom(12)
             box = {"v": 1, "iv": base64.b64encode(iv).decode(),
                    "data": base64.b64encode(AESGCM(trip_key(t)).encrypt(iv, json.dumps(snap).encode(), None)).decode()}
