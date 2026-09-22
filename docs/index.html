@@ -1147,7 +1147,7 @@ function render() {
         <div class="top">
           <div><div class="route"><button class="fold" data-fold="${esc(k)}" aria-expanded="true" title="Show just the lowest fare">▾</button>${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</div>
             ${tags ? `<div class="tags">${tags}</div>` : ""}
-            <div class="muted small">checked ${esc(ago(cur.checked_at))} · <a class="gf" href="${googleLink(w)}" target="_blank" rel="noopener">Google Flights ↗</a> · <a class="gf" href="${skiplaggedLink(w)}" target="_blank" rel="noopener">Skiplagged ↗</a></div></div>
+            <div class="muted small">checked ${esc(ago(cur.checked_at))} · <a class="gf" href="${googleLink(w)}" target="_blank" rel="noopener" title="The same nonstop search the tracker runs">Google Flights: nonstop ↗</a> · <a class="gf" href="${skiplaggedLink(w)}" target="_blank" rel="noopener">Skiplagged ↗</a></div></div>
           <div class="right"><div class="price${moveClass(cur)}" title="${esc(moveTitle(cur, w))}">${moveDot(cur)}$${cur.price}</div><div class="muted small">${esc(cur.airline)}</div></div>
         </div>
         ${(() => {
@@ -1158,7 +1158,7 @@ function render() {
         ${(() => {
           const one = oneFare(cur, w);
           if (!one) return "";
-          return `<div class="skiprow"><span class="stop1">1 stop</span> <b>$${one.price}</b> <span class="muted">($${cur.price - one.price} less)</span> · ${esc(one.airline)} ${esc(timeLabel(one.departs))} via <b>${esc(CITY[one.via] ? `${CITY[one.via]} (${one.via})` : one.via)}</b> · ${esc(layoverLabel(one.layover))}${one.arrives ? ` · arrives ${esc(timeLabel(one.arrives))}` : ""}${one.flights?.length ? ` · flights ${esc(one.flights.map(flightLabel).join(" + "))}` : ""} · <a href="${oneStopLink(w, one)}" target="_blank" rel="noopener">see it on Google Flights ↗</a></div>`;
+          return `<div class="skiprow"><span class="stop1">1 stop</span> <b>$${one.price}</b> <span class="muted">($${cur.price - one.price} less)</span> · ${esc(one.airline)} ${esc(timeLabel(one.departs))} via <b>${esc(CITY[one.via] ? `${CITY[one.via]} (${one.via})` : one.via)}</b> · ${esc(layoverLabel(one.layover))}${one.arrives ? ` · arrives ${esc(timeLabel(one.arrives))}` : ""}${one.flights?.length ? ` · flights ${esc(one.flights.map(flightLabel).join(" + "))}` : ""} · <a href="${oneStopLink(w, one)}" target="_blank" rel="noopener">see this 1-stop fare on Google Flights ↗</a></div>`;
         })()}
         ${(() => {
           const h = skipFare(cur, w);
