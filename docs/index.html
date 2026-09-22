@@ -680,10 +680,10 @@ function compareHtml(watches) {
   const tables = [["From Florida", [...rows].filter(([k]) => fromFL(k))],
                   ["To Florida", [...rows].filter(([k]) => !fromFL(k) && toFL(k))],
                   ["Elsewhere", [...rows].filter(([k]) => !fromFL(k) && !toFL(k))]];
-  let out = `<p class="small muted" style="margin:10px 0 0">Cheapest nonstop of the versions you track, per route and date. Green: the route's cheapest date. Purple: its cheapest skiplagged fare. Tap a date to sort by it; tap a fare to open that route.</p>
+  let out = `<p class="small muted" style="margin:10px 0 0">Cheapest nonstop of the versions you track, per route and date. Green: the route's cheapest date. Purple: its cheapest skiplagged fare. Blue: a cheaper 1-stop fare. Tap a date to sort by it; tap a fare to open that route.</p>
     <div class="row" style="align-items:center;margin:10px 0 0"><span class="small muted">Sort by</span><div class="seg">
       <label><input type="radio" name="sortby" value="nonstop"${sortBest ? "" : " checked"}>Nonstop</label>
-      <label><input type="radio" name="sortby" value="best"${sortBest ? " checked" : ""}>Best price (skiplagged when cheaper)</label>
+      <label><input type="radio" name="sortby" value="best"${sortBest ? " checked" : ""}>Best price</label>
     </div></div>
     <div class="row" style="align-items:center;margin:10px 0 0"><label class="small muted" for="airportFilter">Airport</label>
       <select id="airportFilter"><option value="">All airports</option>${airports.map(a => `<option value="${esc(a)}"${a === filterBy ? " selected" : ""}>${esc(a)}</option>`).join("")}</select></div>`;
@@ -691,7 +691,8 @@ function compareHtml(watches) {
     if (!list.length) continue;
     const dates = [...new Set(list.flatMap(([, r]) => Object.keys(r)))].sort();
     // The price rows are ordered by: nonstop, or with "Best price" the skiplagged fare when it's lower.
-    const sortPrice = c => c.na ? Infinity : sortBest && c.skip && c.skip < c.price ? c.skip : c.price;
+    // "Best price" sorts on the cheapest of the three: nonstop, 1-stop, skiplagged.
+    const sortPrice = c => c.na ? Infinity : sortBest ? Math.min(c.price, c.skip || Infinity, c.one || Infinity) : c.price;
     const cheapest = r => Math.min(...Object.values(r).filter(c => !c.na).map(c => c.price));
     const cheapestSort = r => Math.min(...Object.values(r).map(sortPrice));
     const sortingBy = dates.includes(sortDate) ? sortDate : null;
