@@ -1259,8 +1259,10 @@ function renderStatus() {
     text = `<b>Checking prices now…</b> <span class="muted small">Results show up here when it finishes.</span>`;
   } else if (lr) {
     if (lr.errors?.length && lr.errors.length >= (lr.searches || 1) / 2) dot = "bad";
-    // lr.daily is missing until the first check that records it; don't guess what the gap was.
-    const daily = lr.daily ?? null, waiting = daily == null ? 0 : Math.max(0, lr.total - lr.searched - daily);
+    // Routes with no nonstop flights are checked once a day, not hourly. The tracker records
+    // how many (lr.daily); before it did, count them here from the fares we have.
+    const daily = lr.daily ?? tracked().filter(w => latest[wKey(w)] && latest[wKey(w)].price == null).length;
+    const waiting = Math.max(0, lr.total - lr.searched - daily);
     const partial = lr.searched < lr.total
       ? ` (${lr.searched} of ${lr.total} route/dates${daily ? `; ${daily} with no nonstop flights are checked once a day` : ""}${waiting ? `; ${waiting} ran out of time and go first next check` : ""})`
       : ` (${lr.total} route/dates)`;
