@@ -57,6 +57,7 @@ table.grid td button.gone{color:var(--up);font-weight:650}
 details{margin-top:10px}
 summary{cursor:pointer;color:var(--accent);font-size:14px}
 .empty{text-align:center;padding:40px 10px}
+td.times{color:var(--muted);font-size:13px}
 .skipnote{margin-top:10px;font-size:14px;line-height:1.6}
 .bagnote{margin-top:10px;font-size:13px;color:var(--up)}
 .bagflag{color:var(--up);font-weight:700}
@@ -215,7 +216,11 @@ function detail(i) {
     badges.push(`<span class="badge ${l.price > m.base ? "up" : "down"}">${m.full ? "24 h" : `${m.hours} h`}: ${l.price > m.base ? "▲" : "▼"} $${Math.abs(l.price - m.base)}</span>`);
   if (first != null && l.price != null && l.price !== first && m?.full !== false)
     badges.push(`<span class="badge ${l.price > first ? "up" : "down"}">Since tracking began${hist[0] ? " " + esc(new Date(hist[0][0]).toLocaleDateString("en-US", {timeZone: "America/New_York", month: "short", day: "numeric"})) : ""}: ${l.price > first ? "▲" : "▼"} $${Math.abs(l.price - first)}</span>`);
+  // Same detail as the owner's route card: every airline's lowest fare with its departure
+  // times, and every nonstop flight that day.
   const others = Object.entries(l.airlines || {}).sort((a, b) => a[1] - b[1]);
+  const airlineRows = others.map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td><td class="times">${esc((l.airline_times?.[a] || []).map(timeLabel).join(", "))}</td></tr>`).join("");
+  const flightRows = (l.flights || []).map(f => `<tr><td>${esc(timeLabel(f.departs))}</td><td>${esc(f.flight ? `${f.flight.slice(0, 2)} ${f.flight.slice(2)}` : f.airline)}</td><td class="num">$${f.price}</td></tr>`).join("");
   const status = l.price == null
     ? `<div class="price">${l.last_price != null ? "No longer available" : "No nonstop flights"}</div><div class="muted small">${l.last_price != null ? `Last seen at $${l.last_price}. ` : ""}Nothing nonstop on the latest check.</div>`
     : `<div class="price ${moveClass(l)}">${moveDot(l)}$${l.price}</div><div class="muted small">${esc(l.airline)}${l.times?.length ? ` · leaves ${esc(l.times.map(timeLabel).join(", "))}` : ""}</div>`;
@@ -225,7 +230,8 @@ function detail(i) {
     <div style="margin-top:8px">${status}</div>
     ${badges.length ? `<div style="margin-top:8px">${badges.join("")}</div>` : ""}
     ${seen.length ? `<div style="margin-top:8px" class="small">${sparkline([...hist.map(p => p[1]), l.price])} <span class="muted">Low $${Math.min(...seen)} · High $${Math.max(...seen)} since tracking began</span></div>` : ""}
-    ${others.length > 1 ? `<div class="small" style="margin-top:8px">${others.map(([a, p]) => `${esc(a)} $${p}`).join(" · ")}</div>` : ""}
+    ${airlineRows ? `<div class="tablewrap" style="margin-top:8px"><table><thead><tr><th>Airline</th><th class="num">Lowest fare</th><th>Departs at that fare</th></tr></thead><tbody>${airlineRows}</tbody></table></div>` : ""}
+    ${flightRows ? `<details><summary>All ${l.flights.length} nonstop flight${l.flights.length > 1 ? "s" : ""}</summary><div class="tablewrap"><table><thead><tr><th>Departs</th><th>Flight</th><th class="num">Fare</th></tr></thead><tbody>${flightRows}</tbody></table></div></details>` : ""}
     ${bagNote(l) ? `<div class="bagnote">⚠ ${esc(bagNote(l))}</div>` : ""}
     ${l.onestop ? `<div class="skipnote"><span class="stop1">1 stop</span> <b>$${l.onestop.price}</b>${l.price != null ? ` <span class="muted">($${l.price - l.onestop.price} less)</span>` : ""} · ${esc(l.onestop.airline)} ${esc(timeLabel(l.onestop.departs))} · changes planes in ${esc(l.onestop.via)}, ${Math.floor(l.onestop.layover / 60)}h ${String(l.onestop.layover % 60).padStart(2, "0")}m between flights${l.onestop.arrives ? ` · arrives ${esc(timeLabel(l.onestop.arrives))}` : ""}${l.link1 ? ` · <a href="${esc(l.link1)}" target="_blank" rel="noopener noreferrer">1-stop flights on Google Flights ↗</a>` : ""}</div>` : ""}
     ${s ? `<div class="skipnote"><span class="skip">Skiplagged</span> <b>$${s.price}</b> · ${esc(s.airline)}${s.departs ? ` ${esc(timeLabel(s.departs))}` : ""} · a ticket to ${esc(s.final)} that stops in ${esc(l.d)}; you'd get off there. Carry-on only, and don't book the return on the same ticket.${s.international ? " International ticket: passport needed." : ""}</div>` : ""}

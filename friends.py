@@ -83,9 +83,15 @@ def due(sub, prices, now):
 
 def email_body(t, legs, sub, reason):
     last = sub.get("last_prices") or {}
+    # "When prices change" emails list only what moved since the last email (the user found
+    # sending every fare each time useless); the daily and weekly ones are a full digest.
+    if reason == "changes":
+        moved = [x for x in legs if x["key"] in last and x["price"] != last[x["key"]]]
+        new_legs = [x for x in legs if x["key"] not in last]
+        legs, others = moved + new_legs, len(legs) - len(moved) - len(new_legs)
     lines = []
     intro = {"welcome": "You're signed up for fare updates on this trip. Current fares:",
-             "changes": "Fares changed on this trip:",
+             "changes": "Fares that changed on this trip:",
              "daily": "Your daily fare update:", "weekly": "Your weekly fare update:"}[reason]
     lines.append(intro)
     for label, part in (("Going", [x for x in legs if x["going"]]), ("Coming back", [x for x in legs if not x["going"]])):
@@ -105,6 +111,8 @@ def email_body(t, legs, sub, reason):
                 f" · {'UP' if x['price'] > was else 'DOWN'} ${abs(x['price'] - was)} since your last email (was ${was})"
             when = f" at {', '.join(tracker.time_label(h) for h in x['times'])}" if x.get("times") else ""
             lines.append(f"{date} · {route}: ${x['price']}{change} · {x['airline']}{when}")
+    if reason == "changes" and others:
+        lines += ["", f"{others} other fare{'s' if others > 1 else ''} on this trip didn't change."]
     lines += ["", "Prices are per person, nonstop, checked about every hour.",
               f"See the trip, price history and Google Flights links: {trip_link(t)}", "",
               f"Stop these emails: {trip_link(t, sub['id'])}"]

@@ -803,12 +803,18 @@ def search(only_new=False):
             # after that, the usual $/% amounts, or any time it's under the route's alert price.
             target = targets.get(key)
             if (one["price"] < (target or 0)) or (prior.get("price") and is_flagged(prior["price"], one["price"], cfg)):
-                lines.append(f"ONE-STOP {describe(key)}: ${one['price']} · ${new - one['price']} under the nonstop · "
+                was = prior.get("price")
+                word = "DOWN" if was and one["price"] < was else "UP" if was and one["price"] > was else "1-STOP"
+                moved = f"{word} ${abs(one['price'] - was)} (was ${was}) · " if was and one["price"] != was else ""
+                lines.append(f"{word} {describe(key)}: 1 stop ${one['price']} · {moved}"
+                             f"${new - one['price']} under the nonstop · "
                              f"{one['airline']} at {time_label(one['departs'])} via {one['via']}, "
                              f"{one['layover'] // 60}h {one['layover'] % 60}m layover{link}")
-                item(key, f"ONE-STOP ${one['price']}", "down", one["price"],
+                item(key, f"1 STOP ${one['price']}" + (f" · {word} ${abs(one['price'] - was)}" if moved else ""),
+                     "up" if word == "UP" else "down", one["price"],
                      f"{one['airline']} {time_label(one['departs'])} via {one['via']} · "
-                     f"{one['layover'] // 60}h {one['layover'] % 60}m layover · ${new - one['price']} under the nonstop")
+                     f"{one['layover'] // 60}h {one['layover'] % 60}m layover · ${new - one['price']} under the nonstop"
+                     + (f" · was ${was}" if moved else ""))
                 counts["1-stop"] += 1
         h = combined_hidden(f, before)
         if h and h.get("international") and not is_international(split_key(key)[1]) and not cfg.get("skiplagged_intl_domestic"):
@@ -1059,7 +1065,8 @@ def trip_legs(cfg, latest, t, trails):
                "opts": options_label(options_code(w)), "going": going.get(k, True),
                "checked_at": e.get("checked_at"), "price": e.get("price"), "airline": e.get("airline"),
                "times": (e.get("times") or {}).get(e.get("airline"), []),
-               "airlines": e.get("airlines") or {}, "moves": e.get("moves") or [],
+               "airlines": e.get("airlines") or {}, "airline_times": e.get("times") or {},
+               "flights": e.get("flights") or [], "moves": e.get("moves") or [],
                "history": [p for p in trails.get(k, []) if p[0] <= (e.get("checked_at") or "9999")],
                "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults), "link1": google_link(w, adults, 1),
                "bagless": e.get("bagless") or {},
