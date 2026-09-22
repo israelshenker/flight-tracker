@@ -854,7 +854,9 @@ def search(only_new=False):
         "empty_streaks": empty_streaks,
         "alerts": alerts_out,
         "last_run": {"at": stamp, "searched": len(fares), "total": len(routes), "searches": attempted,
-                     "errors": errors[:20], "only_new": only_new},
+                     # Routes with no nonstop flights are only looked at once a day; the page says so
+                     # instead of making it look like they were skipped for lack of time.
+                     "daily": len(routes) - len(todo), "errors": errors[:20], "only_new": only_new},
     })
     print(f"{len(lines)} alert lines ({dict(counts)}), {len(errors)} errors")
     return 0
