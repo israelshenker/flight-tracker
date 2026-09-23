@@ -1,6 +1,7 @@
 """Send alerts by Gmail and ntfy push. Credentials come from environment variables only."""
 import os
 import smtplib
+import time
 import urllib.request
 from email.message import EmailMessage
 from email.utils import make_msgid
@@ -46,16 +47,24 @@ def send_push(title, body, click=None):
     urllib.request.urlopen(req, timeout=30).close()
 
 
+# The push goes out first and the email this many seconds later, so the phone's email sound
+# doesn't cut off the push's notification sound (user's request).
+EMAIL_AFTER_PUSH_SECONDS = 15
+
+
 def send(title, body, click=None, thread=None, push_body=None):
     """click: page the push notification's "Open alert" button opens.
     thread: (id, subject, first) to put the email in a shared conversation; the push keeps
     `title` and the email body starts with it. push_body: different text for the push
     (price alerts put one word such as UP or DOWN in front of each line); defaults to body."""
-    for channel in (send_email, send_push):
+    for channel in (send_push, send_email):
         try:
             if channel is send_push:
                 send_push(title, push_body or body, click)
-            elif thread:
+                continue
+            if os.environ.get("NTFY_TOPIC"):
+                time.sleep(EMAIL_AFTER_PUSH_SECONDS)
+            if thread:
                 send_email(thread[1], f"{title}\n\n{body}", thread[0], thread[2])
             else:
                 send_email(title, body)
