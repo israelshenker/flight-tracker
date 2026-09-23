@@ -772,10 +772,12 @@ def search(only_new=False):
                 del f["bagless"]
 
     # ---- alerts: one line per route, only for what changed ----
-    targets = {}
+    targets, book = {}, set()
     for w in cfg.get("watches", []):
         if w.get("alert_below"):
             targets[key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))] = float(w["alert_below"])
+            if w.get("book"):  # "Create one-click booking": a BUY push with a Book button when it crosses
+                book.add(key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)))
     no_skip = skiplagged_off_keys(cfg)
     # Each line (email and push) starts with one word (user's request): UP, DOWN, BELOW,
     # NEW (nonstop), SKIPLAGGED or ONE-WAYS; then date, route, price, change.
@@ -815,7 +817,8 @@ def search(only_new=False):
             if target and new < target and not (prev and prev < target):
                 tags.append(f"BELOW ${target:g}")
                 counts["below target"] += 1
-                buys.append((key, new, target, best))
+                if key in book:
+                    buys.append((key, new, target, best))
             if cfg.get("alert_new_low", True) and low and new < low:
                 tags.append("NEW LOW")
                 counts["new low"] += 1

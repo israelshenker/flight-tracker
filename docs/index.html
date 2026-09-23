@@ -258,6 +258,7 @@ td.times{color:var(--muted);font-size:13px}
     <div class="row">
       <label class="f">Passengers <select id="optAdults"><option value="0">Settings number</option><option value="1">1 passenger</option><option value="2">2 passengers</option><option value="3">3 passengers</option><option value="4">4 passengers</option><option value="5">5 passengers</option><option value="6">6 passengers</option><option value="7">7 passengers</option><option value="8">8 passengers</option><option value="9">9 passengers</option></select></label>
       <label class="f">Alert me when the fare drops below ($ per person, optional) <input type="number" id="optBelow" min="1" step="1" placeholder="e.g. 120"></label>
+      <label class="inline small" style="align-self:end"><input type="checkbox" id="optBook"> Create one-click booking when it drops below this price</label>
     </div>
     <div class="row">
       <label class="f">Trip (optional) <select id="optTrip"></select></label>
@@ -307,6 +308,7 @@ td.times{color:var(--muted);font-size:13px}
     <div class="row">
       <label class="f">Passengers <select id="editAdults"><option value="0">Settings number</option><option value="1">1 passenger</option><option value="2">2 passengers</option><option value="3">3 passengers</option><option value="4">4 passengers</option><option value="5">5 passengers</option><option value="6">6 passengers</option><option value="7">7 passengers</option><option value="8">8 passengers</option><option value="9">9 passengers</option></select></label>
       <label class="f">Alert me when the fare drops below ($ per person, optional) <input type="number" id="editBelow" min="1" step="1" placeholder="none"></label>
+      <label class="inline small" style="align-self:end"><input type="checkbox" id="editBook"> Create one-click booking when it drops below this price</label>
     </div>
     <div class="row"><label class="inline small"><input type="checkbox" id="editAll"> <span id="editAllLabel"></span></label></div>
     <div class="row"><label class="inline small"><input type="checkbox" id="editKeep" checked> Keep the price history when bags or times change</label></div>
@@ -1297,7 +1299,7 @@ function render() {
       const k = wKey(w);
       if (selectMode || !folded.openRoutes.has(k)) {
         const target = targetFor(w);
-        const tags = [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(w.no_skiplagged ? ["No skiplagged"] : []), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
+        const tags = [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(target && w.book ? ["One-click booking"] : []), ...(w.no_skiplagged ? ["No skiplagged"] : []), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
           .map(t => `<span class="tag${t.startsWith("Alert") && cur.price < target ? " hit" : ""}${t.startsWith("Trip: ") ? " trip" : ""}">${esc(t)}</span>`).join("");
 
         html += `<article class="card compact"><div class="cline">
@@ -1330,7 +1332,7 @@ function render() {
       const airlines = Object.entries(cur.airlines || {}).sort((a, b) => a[1] - b[1])
         .map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td><td class="times">${esc((cur.times?.[a] || []).map(timeLabel).join(", "))}</td></tr>`).join("");
       const target = targetFor(w);
-      const tags = [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(w.no_skiplagged ? ["No skiplagged"] : []), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
+      const tags = [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(target && w.book ? ["One-click booking"] : []), ...(w.no_skiplagged ? ["No skiplagged"] : []), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
         .map(t => `<span class="tag${t.startsWith("Alert") && cur.price < target ? " hit" : ""}${t.startsWith("Trip: ") ? " trip" : ""}">${esc(t)}</span>`).join("");
       const rows = changes.slice().reverse().map(r => r.marker
         ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed${r.marker ? ` (was: ${esc(r.marker)})` : ""}</i></td></tr>`
@@ -1585,6 +1587,7 @@ function openEdit(key) {
   $("editFrom").value = String(o.time_from);
   $("editTo").value = String(o.time_to);
   $("editBelow").value = targetFor(w) ?? "";
+  $("editBook").checked = !!w.book;
   $("editTimeLabel").textContent = w.return ? "Outbound flight leaving between" : "Leaving between";
   const sameDay = tracked().filter(x => x.depart === w.depart && (x.return || "") === (w.return || "")).length;
   $("editAll").checked = false;
@@ -1600,7 +1603,7 @@ $("btnSaveEdit").onclick = () => {
   let from = +$("editFrom").value, to = +$("editTo").value;
   if (to <= from) to = 24;
   const carry = $("editCarry").checked ? 1 : 0, checked = +$("editChecked").value, pax = +$("editAdults").value;
-  const below = +$("editBelow").value > 0 ? Math.round(+$("editBelow").value) : null;
+  const below = +$("editBelow").value > 0 ? Math.round(+$("editBelow").value) : null, book = $("editBook").checked;
   const all = $("editAll").checked && !$("editAll").closest(".row").hidden;
   const keep = $("editKeep").checked;
   if (!needToken(() => { show("editPanel"); $("btnSaveEdit").click(); })) return;
@@ -1610,12 +1613,13 @@ $("btnSaveEdit").onclick = () => {
       for (const x of c.watches) {
         if (!matches(x)) continue;
         const before = optsCode(x);
-        for (const f of ["carry_on", "checked", "time_from", "time_to", "adults", "alert_below"]) delete x[f];
+        for (const f of ["carry_on", "checked", "time_from", "time_to", "adults", "alert_below", "book"]) delete x[f];
         if (carry) x.carry_on = carry;
         if (pax) x.adults = pax;
         if (checked) x.checked = checked;
         if (from > 0 || to < 24) { x.time_from = from; x.time_to = to; }
         if (below) x.alert_below = below;
+        if (below && book) x.book = true;
         if (optsCode(x) !== before) {
           // history_from: earlier settings of this route, each used until a moment in time.
           if (keep) x.history_from = [...(x.history_from || []), {opts: before, until: new Date().toISOString()}];
@@ -1642,6 +1646,7 @@ function newWatches(includeTracked = false) {
   for (const [o, d] of pairs) for (const dep of deps) for (const ret of rets) {
     const w = {origin: o, dest: d, depart: dep, return: ret, ...chosenOptions()};
     if (+$("optBelow").value > 0) w.alert_below = Math.round(+$("optBelow").value);
+    if (w.alert_below && $("optBook").checked) w.book = true;  // "BUY" push with a Book button when it crosses
     if (o !== d && dep >= today && (!ret || ret >= dep) && (includeTracked || !have.has(wKey(w))) && !seen.has(wKey(w))) { out.push(w); seen.add(wKey(w)); }
   }
   return out;
@@ -1674,7 +1679,7 @@ $("btnDoAdd").onclick = () => {
       const have = new Set(c.watches.map(wKey));
       for (const w of add) if (!have.has(wKey(w))) c.watches.push(w);
       const upd = new Set(updates.map(wKey));
-      if (below) for (const w of c.watches) if (upd.has(wKey(w))) w.alert_below = below;
+      if (below) for (const w of c.watches) if (upd.has(wKey(w))) { w.alert_below = below; if ($("optBook").checked) w.book = true; }
       const tid = toTrip ? pickedTrip(c, "optTrip", "optTripNew") : null;
       if (tid) {
         const inTrip = new Set(all.map(wKey));
@@ -1683,7 +1688,7 @@ $("btnDoAdd").onclick = () => {
       c.custom_airports = customCodes;
     }, add.length ? `Add ${add.length} flight(s) from web page` : `Set price alert on ${updates.length} flight(s) from web page`);
     for (const i of document.querySelectorAll("#addPanel input[type=checkbox]")) i.checked = false;
-    $("optBelow").value = ""; $("optTripNew").value = "";
+    $("optBelow").value = ""; $("optTripNew").value = ""; $("optBook").checked = false;
     show(null);
   }, $("addMsg"));
 };
