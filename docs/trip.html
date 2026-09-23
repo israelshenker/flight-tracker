@@ -363,12 +363,14 @@ function roundTripHtml() {
     return {l, dep: l.dep, from: l.o, to: l.d, price, pax: l.pax || 1, kind,
             airline: kind === "1 stop" ? l.onestop.airline : kind === "skiplagged" ? l.skip.airline : nsAir, bag: kind === "nonstop" && l.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: l.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
-  const airportPick = homes => `<select id="rtAirport" style="font-size:13px;padding:3px 6px" title="Which airports the round trip may use"><option value="">Any airports</option><option value="same"${rtAirport === "same" ? " selected" : ""}>Same airports both ways</option>${homes.map(a => `<option value="${a}"${rtAirport === a ? " selected" : ""}>From ${a} and back to ${a}</option>`).join("")}</select>`;
+  const airportPick = (homes, aways) => `<select id="rtAirport" style="font-size:13px;padding:3px 6px" title="Which airports the round trip may use"><option value="">Any airports</option><option value="same"${rtAirport === "same" ? " selected" : ""}>Same airports both ways</option>${homes.map(a => `<option value="${a}"${rtAirport === a ? " selected" : ""}>From ${a} and back to ${a}</option>`).join("")}${aways.map(a => `<option value="to:${a}"${rtAirport === "to:" + a ? " selected" : ""}>Into ${a} and out of ${a}</option>`).join("")}</select>`;
   const bagPick = names => names.length ? `<label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="rtNoBag"${rtNoBag ? " checked" : ""}> Skip airlines Google can't price bags for (${esc(names.join(", "))})</label>` : "";
   // Same airports both ways: Coming back goes from where Going landed, back to where it left.
-  // From X: Going leaves X and Coming back lands at X.
-  const pairOk = (o, b) => !rtAirport || (rtAirport === "same" ? !b || (b.from === o.to && b.to === o.from) : o.from === rtAirport && (!b || b.to === rtAirport));
-  const homes = [...new Set(side(true).map(l => l.o))].sort();
+  // From X: Going leaves X and Coming back lands at X. to:X: Going lands at X and Coming back leaves X.
+  const pairOk = (o, b) => !rtAirport || (rtAirport === "same" ? !b || (b.from === o.to && b.to === o.from)
+    : rtAirport.startsWith("to:") ? o.to === rtAirport.slice(3) && (!b || b.from === rtAirport.slice(3))
+    : o.from === rtAirport && (!b || b.to === rtAirport));
+  const homes = [...new Set(side(true).map(l => l.o))].sort(), aways = [...new Set(side(true).map(l => l.d))].sort();
   const plan = planTrip(cands(true, rtOut), backDates.length ? cands(false, rtBack) : [], trip.car, pairOk);
   const out = plan?.out, back = plan?.back;
   const pick = (id, dates, val) => `<select id="${id}"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
@@ -378,7 +380,7 @@ function roundTripHtml() {
   return `<div class="card rt"><div class="rthead"><b>Cheapest ${backDates.length ? "round trip" : "flight"}</b>
       <span class="opts small"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}> Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}> Best price</label></span>
       <b class="rttotal">${plan ? `${money(plan.total)} total` : "—"}</b></div>
-    <div class="rtleg" style="border-top:0">${backDates.length ? airportPick(homes) : ""}${bagPick(unpriced)}</div>
+    <div class="rtleg" style="border-top:0">${backDates.length ? airportPick(homes, aways) : ""}${bagPick(unpriced)}</div>
     ${row(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? row(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
     ${plan ? `<div class="small" style="margin-top:6px">${esc(planSummary(plan))}</div>` : ""}
     <div class="muted small" style="margin-top:4px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."}${trip.car ? " Picks the dates with the lowest total, rental car included." : ""} Pick dates to price a specific trip.${[out, back].some(x => x?.bag) ? ` <span style="color:var(--up)">* bag fee not included in that fare (tap the route for details).</span>` : ""}</div></div>`;
