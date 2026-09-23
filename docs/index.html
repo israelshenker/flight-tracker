@@ -788,13 +788,14 @@ function tripBestHtml() {
     const one = oneFare(cur, w), skip = skipFare(cur, w);
     const price = rtBest ? Math.min(cur.price, one?.price ?? Infinity, skip?.price ?? Infinity) : cur.price;
     const kind = price === cur.price ? "nonstop" : price === one?.price ? "1 stop" : "skiplagged";
-    return {w, price, kind, airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : cur.airline};
+    return {w, price, kind, airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : cur.airline,
+            bag: kind === "nonstop" ? bagNote(cur) : ""};
   }).filter(Boolean).sort((a, b) => a.price - b.price)[0];
   const out = best(true, rtOut), back = backDates.length ? best(false, rtBack) : null;
   const pick = (id, dates, val) => `<select id="${id}" style="font-size:13px;padding:3px 6px"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
   const leg = (x, label, sel) => `<div class="cline" style="gap:8px;flex-wrap:wrap;white-space:normal"><span class="tag">${label}</span>${sel}${x
     ? `<a href="#r=${encodeURIComponent(wKey(x.w))}" data-open-route="${esc(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
-      <span class="muted small">${esc(niceDate(x.w.depart))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto">$${x.price}</b>`
+      <span class="muted small">${esc(niceDate(x.w.depart))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>`
     : `<span class="muted small">no fare on that date</span>`}</div>`;
   const total = out && (back || !backDates.length) ? out.price + (back?.price || 0) : null;
   return `<div class="card" style="border-color:var(--accent)">
@@ -802,7 +803,7 @@ function tripBestHtml() {
       <div class="seg" style="font-size:13px"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}>Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}>Best price</label></div>
       <b style="margin-left:auto;font-size:18px">${total != null ? `$${total}${backDates.length ? " total per person" : ""}` : "—"}</b></div>
     ${leg(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? leg(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
-    <div class="muted small" style="margin-top:6px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."} Pick dates to price a specific trip, or leave "Cheapest date".</div>
+    <div class="muted small" style="margin-top:6px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."} Pick dates to price a specific trip, or leave "Cheapest date".${[out, back].some(x => x?.bag) ? ` <span style="color:var(--up)">* bag fee not included in that fare.</span>` : ""}</div>
   </div>`;
 }
 function shareBarHtml() {
