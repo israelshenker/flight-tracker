@@ -1090,6 +1090,7 @@ def trip_legs(cfg, latest, t, trails):
                "flights": e.get("flights") or [], "moves": e.get("moves") or [],
                "history": [p for p in trails.get(k, []) if p[0] <= (e.get("checked_at") or "9999")],
                "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults), "link1": google_link(w, adults, 1),
+               "pax": parse_options(options_code(w))["adults"] or adults,
                "bagless": e.get("bagless") or {},
                "onestop": e.get("onestop") if e.get("onestop") and e.get("price") and e["onestop"]["price"] < e["price"]
                           and k not in onestop_off else None}
@@ -1118,6 +1119,7 @@ def write_trip_pages(cfg, latest):
                     "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "skiplagged": bool(t.get("skiplagged")), "legs": trip_legs(cfg, latest, t, trails),
                     "names": {},
+                    "car": t.get("car"),  # rental car cost, for the round-trip total
                     "signup": cfg.get("signup_topic")}  # where the page's "Email me updates" form posts (see friends.py)
             snap["names"] = {c: AIRPORT_NAMES[c] for leg in snap["legs"] for c in (leg["o"], leg["d"]) if c in AIRPORT_NAMES}
             iv = os.urandom(12)
