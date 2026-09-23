@@ -880,14 +880,11 @@ function tripBestHtml() {
     return {w, dep: w.depart, from: w.origin, to: w.dest, price, pax: parseOpts(optsCode(w)).adults || config.adults || 1, kind,
             airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : nsAir, bag: kind === "nonstop" && cur.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: cur.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
-  const airportPick = (homes, aways) => `<select id="rtAirport" style="font-size:13px;padding:3px 6px" title="Which airports the round trip may use"><option value="">Any airports</option><option value="same"${rtAirport === "same" ? " selected" : ""}>Same airports both ways</option>${homes.map(a => `<option value="${a}"${rtAirport === a ? " selected" : ""}>From ${a} and back to ${a}</option>`).join("")}${aways.map(a => `<option value="to:${a}"${rtAirport === "to:" + a ? " selected" : ""}>Into ${a} and out of ${a}</option>`).join("")}</select>`;
+  const airportPick = () => `<select id="rtAirport" style="font-size:13px;padding:3px 6px" title="Which airports the round trip may use">${[["", "No airport preference"], ["same", "Same airports both ways"], ["dep", "Same departure airport"], ["dest", "Same destination airport"]].map(([v, t]) => `<option value="${v}"${rtAirport === v ? " selected" : ""}>${t}</option>`).join("")}</select>`;
   const bagPick = names => names.length ? `<label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="rtNoBag"${rtNoBag ? " checked" : ""}> Skip airlines Google can't price bags for (${esc(names.join(", "))})</label>` : "";
   // Same airports both ways: Coming back goes from where Going landed, back to where it left.
-  // From X: Going leaves X and Coming back lands at X. to:X: Going lands at X and Coming back leaves X.
-  const pairOk = (o, b) => !rtAirport || (rtAirport === "same" ? !b || (b.from === o.to && b.to === o.from)
-    : rtAirport.startsWith("to:") ? o.to === rtAirport.slice(3) && (!b || b.from === rtAirport.slice(3))
-    : o.from === rtAirport && (!b || b.to === rtAirport));
-  const homes = [...new Set(side(true).map(w => w.origin))].sort(), aways = [...new Set(side(true).map(w => w.dest))].sort();
+  // Same departure: Coming back lands where Going left. Same destination: Coming back leaves where Going landed.
+  const pairOk = (o, b) => !b || !rtAirport || ((rtAirport === "dest" || b.to === o.from) && (rtAirport === "dep" || b.from === o.to));
   const plan = planTrip(cands(true, rtOut), backDates.length ? cands(false, rtBack) : [], t.car, pairOk);
   const out = plan?.out, back = plan?.back;
   const pick = (id, dates, val) => `<select id="${id}" style="font-size:13px;padding:3px 6px"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
@@ -899,7 +896,7 @@ function tripBestHtml() {
     <div class="row" style="margin:0 0 6px;align-items:center"><b>Cheapest ${backDates.length ? "round trip" : "flight"} for ${esc(t.name)}</b>
       <div class="seg" style="font-size:13px"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}>Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}>Best price</label></div>
       <b style="margin-left:auto;font-size:18px">${plan ? `${money(plan.total)} total` : "—"}</b></div>
-    <div class="row" style="margin:0 0 6px;gap:10px;align-items:center">${backDates.length ? airportPick(homes, aways) : ""}${bagPick(unpriced)}</div>
+    <div class="row" style="margin:0 0 6px;gap:10px;align-items:center">${backDates.length ? airportPick() : ""}${bagPick(unpriced)}</div>
     ${leg(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? leg(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
     ${plan ? `<div class="small" style="margin-top:6px">${esc(planSummary(plan))}</div>` : ""}
     ${plan?.back ? `<div class="small" style="margin-top:4px">Car for these dates: pick up ${esc(plan.out.to)} ${esc(niceDate(plan.out.dep))}, return ${esc(plan.back.from)} ${esc(niceDate(plan.back.dep))} · <a href="https://www.costcotravel.com/Rental-Cars" target="_blank" rel="noopener">check rates on Costco Travel ↗</a></div>` : ""}
