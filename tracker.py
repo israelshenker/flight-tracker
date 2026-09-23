@@ -806,7 +806,9 @@ def search(only_new=False):
                 was = prior.get("price")
                 word = "DOWN" if was and one["price"] < was else "UP" if was and one["price"] > was else "1-STOP"
                 moved = f"{word} ${abs(one['price'] - was)} (was ${was}) · " if was and one["price"] != was else ""
-                lines.append(f"{word} {describe(key)}: 1 stop ${one['price']} · {moved}"
+                # Led by "1-STOP" so it can't be mistaken for a nonstop fare, then the direction.
+                lead = "1-STOP" if word == "1-STOP" else f"1-STOP {word}"
+                lines.append(f"{lead} {describe(key)}: 1 stop ${one['price']} · {moved}"
                              f"${new - one['price']} under the nonstop · "
                              f"{one['airline']} at {time_label(one['departs'])} via {one['via']}, "
                              f"{one['layover'] // 60}h {one['layover'] % 60}m layover{link}")
