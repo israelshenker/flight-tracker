@@ -330,6 +330,21 @@ td.times{color:var(--muted);font-size:13px}
     <span class="msg" id="tripsMsg"></span>
   </section>
 
+  <section class="panel" id="tripDelPanel" hidden>
+    <h2>Delete <span id="tripDelName"></span></h2>
+    <div class="row" style="flex-direction:column;align-items:flex-start;gap:8px">
+      <label class="inline"><input type="radio" name="tripdel" value="trip" checked> Delete the trip, keep tracking its flights</label>
+      <label class="inline"><input type="radio" name="tripdel" value="empty"> Keep the trip, take all its flights out of it (they stay tracked)</label>
+      <label class="inline"><input type="radio" name="tripdel" value="all"> Delete the trip and stop tracking its flights</label>
+    </div>
+    <p class="small" id="tripDelInfo"></p>
+    <div class="row" style="align-items:center;margin-bottom:0">
+      <button class="primary" id="btnTripDel">Delete</button>
+      <button id="btnTripDelCancel">Cancel</button>
+    </div>
+    <span class="msg" id="tripDelMsg"></span>
+  </section>
+
   <section class="panel" id="tripAssignPanel" hidden>
     <h2>Put the selected routes in a trip</h2>
     <div class="row">
@@ -809,8 +824,9 @@ function tripBestHtml() {
 function shareBarHtml() {
   const t = tripsOf().find(x => x.id === tripFilter);
   if (!t) return "";
-  if (!t.share) return `<div class="sharelink"><span class="muted">${esc(t.name)} isn't shared.</span><button class="link small" data-share-trip="${esc(t.id)}">Share it with a link</button></div>`;
-  return `<div class="sharelink"><span class="muted">Friends and family link:</span><a href="${esc(shareLink(t))}" target="_blank" rel="noopener">${esc(shareLink(t).replace(/^https:\/\//, ""))}</a><button class="link small" data-copy-share="${esc(t.id)}">Copy</button>${t.share.token ? "" : `<button class="link small" data-share-trip="${esc(t.id)}" title="Replaces the current link; the old one stops working after the next check">Make it shorter</button>`}</div>`;
+  const del = `<button class="link small" data-del-trip="${esc(t.id)}" style="margin-left:auto">Delete trip…</button>`;
+  if (!t.share) return `<div class="sharelink"><span class="muted">${esc(t.name)} isn't shared.</span><button class="link small" data-share-trip="${esc(t.id)}">Share it with a link</button>${del}</div>`;
+  return `<div class="sharelink"><span class="muted">Friends and family link:</span><a href="${esc(shareLink(t))}" target="_blank" rel="noopener">${esc(shareLink(t).replace(/^https:\/\//, ""))}</a><button class="link small" data-copy-share="${esc(t.id)}">Copy</button>${t.share.token ? "" : `<button class="link small" data-share-trip="${esc(t.id)}" title="Replaces the current link; the old one stops working after the next check">Make it shorter</button>`}${del}</div>`;
 }
 function shareTrip(id) {
   if (!needToken(() => shareTrip(id))) return;
@@ -858,7 +874,7 @@ function renderTripList() {
     </div>
     <div class="inline small"><label><input type="checkbox" data-trip-share="${i}"${t.share ? " checked" : ""}> Share with a link (read-only page)</label>
       <label><input type="checkbox" data-trip-skip="${i}"${t.skiplagged ? " checked" : ""}> Show skiplagged fares on it</label>
-      <label><input type="checkbox" data-trip-delete="${i}"${t.deleted ? " checked" : ""}> Delete this trip (its routes stay tracked)</label></div>
+      ${tripsOf().some(x => x.id === t.id) ? `<button class="link small" data-del-trip="${esc(t.id)}">Delete trip…</button>` : `<label><input type="checkbox" data-trip-delete="${i}"${t.deleted ? " checked" : ""}> Don't create this trip</label>`}</div>
     ${(() => {
       const subs = Object.values(subscribers.subs || {}).filter(x => x.trip === t.id);
       if (!subs.length) return "";
@@ -925,6 +941,58 @@ $("btnSaveTrips").onclick = () => {
     renderTripList();
     $("tripsMsg").className = "msg good"; $("tripsMsg").textContent = "Saved.";
   }, $("tripsMsg"));
+};
+
+// Delete a trip: the trip only, its flights only (the trip stays), or the trip and its flights.
+// A flight that is also in another trip keeps being tracked, so that trip isn't affected.
+let delTripId = null;
+function tripDelCounts(id) {
+  const inTrip = tracked().filter(w => (w.trips || []).includes(id));
+  const shared = inTrip.filter(w => w.trips.some(x => x !== id));
+  return {n: inTrip.length, stop: inTrip.length - shared.length, keep: shared.length};
+}
+function tripDelInfo() {
+  const t = tripsOf().find(x => x.id === delTripId);
+  if (!t) return;
+  const c = tripDelCounts(t.id), mode = document.querySelector("input[name=tripdel]:checked").value;
+  const shared = t.share ? " Its friends-and-family link and email updates stop at the next check." : "";
+  $("tripDelInfo").textContent = mode === "trip"
+    ? `${t.name} is removed; its ${c.n} route/date${c.n === 1 ? "" : "s"} stay tracked.${shared}`
+    : mode === "empty"
+      ? `${c.n} route/date${c.n === 1 ? "" : "s"} come out of ${t.name} and stay tracked. The trip stays${t.share ? ", and its link keeps working (with no flights)" : ""}.`
+      : `${t.name} is removed and ${c.stop} route/date${c.stop === 1 ? "" : "s"} stop being tracked.${c.keep ? ` ${c.keep} also in another trip stay tracked.` : ""}${shared}`;
+  $("btnTripDel").textContent = mode === "empty" ? "Take the flights out" : mode === "all" ? `Delete trip and stop ${c.stop}` : "Delete trip";
+}
+function openTripDel(id) {
+  const t = tripsOf().find(x => x.id === id);
+  if (!t) return;
+  delTripId = id;
+  $("tripDelName").textContent = t.name;
+  document.querySelector("input[name=tripdel][value=trip]").checked = true;
+  $("tripDelMsg").textContent = "";
+  tripDelInfo();
+  show("tripDelPanel");
+}
+$("tripDelPanel").addEventListener("change", tripDelInfo);
+$("btnTripDelCancel").onclick = () => show(null);
+$("btnTripDel").onclick = () => {
+  const id = delTripId, mode = document.querySelector("input[name=tripdel]:checked").value;
+  if (!needToken(() => { openTripDel(id); })) return;
+  save(async () => {
+    await updateConfig(c => {
+      const drop = mode === "all";
+      c.watches = c.watches.filter(w => {
+        if (!(w.trips || []).includes(id)) return true;
+        const rest = w.trips.filter(x => x !== id);
+        if (drop && !rest.length) return false;  // only in this trip: stop tracking it
+        if (rest.length) w.trips = rest; else delete w.trips;
+        return true;
+      });
+      if (mode !== "empty") c.trips = (c.trips || []).filter(t => t.id !== id);
+    }, "Update trips from web page");
+    if (mode !== "empty" && tripFilter === id) { tripFilter = ""; dirFilter = ""; }
+    show(null);
+  }, $("tripDelMsg"));
 };
 
 // Select routes -> Trip…
@@ -1101,7 +1169,7 @@ function render() {
   if (selectMode) {
     const airports = [...new Set(watches.flatMap(w => [w.origin, w.dest]))].sort();
     html = `<div class="toolbar"><span class="small muted">Tick routes, or pick a shortcut:</span>
-      <button class="link small" data-sel-all="1">Select all</button>
+      <button class="link small" data-sel-all="1">${tripFilter ? "Select all in this view" : "Select all"}</button>
       <select id="selAirport"><option value="">All routes with airport…</option>${airports.map(a => `<option>${a}</option>`).join("")}</select>
       <select id="selKind"><option value="">Select by type…</option><option value="plain">No bags, any time</option><option value="bags">With bags</option><option value="times">With a time window</option><option value="alert">With a price alert</option><option value="none">No nonstop found</option><option value="skip">Has a cheaper skiplagged fare</option><option value="one">Has a cheaper 1-stop fare</option></select>
       <button class="link small" data-sel-clear="1">Clear</button></div>`;
@@ -1319,7 +1387,7 @@ function renderStatus() {
 
 // ---------- panels ----------
 function show(panel) {
-  for (const p of ["unlockPanel", "connectPanel", "addPanel", "settingsPanel", "editPanel", "bulkPanel", "tripsPanel", "tripAssignPanel"]) $(p).hidden = p !== panel;
+  for (const p of ["unlockPanel", "connectPanel", "addPanel", "settingsPanel", "editPanel", "bulkPanel", "tripsPanel", "tripAssignPanel", "tripDelPanel"]) $(p).hidden = p !== panel;
   if (panel) $(panel).scrollIntoView({behavior: "smooth", block: "nearest"});
 }
 let afterConnect = null;
@@ -1742,12 +1810,13 @@ document.addEventListener("click", e => {
   if (b.dataset.compare) { compareMode = !compareMode; render(); window.scrollTo({top: 0}); }
   else if (b.dataset.sortDate) { sortDate = sortDate === b.dataset.sortDate ? null : b.dataset.sortDate; render(); }
   else if (b.dataset.selectMode) { selectMode = true; selected.clear(); show(null); render(); }
-  else if (b.dataset.selAll) { for (const w of tracked()) selected.add(wKey(w)); render(); }
+  else if (b.dataset.selAll) { for (const w of filterByTrip(tracked())) selected.add(wKey(w)); render(); }  // only what the Trip filter shows
   else if (b.dataset.selClear) { selected.clear(); render(); }
   else if (b.dataset.bulk === "done") { selectMode = false; selected.clear(); show(null); render(); }
   else if (b.dataset.bulk === "change" || b.dataset.bulk === "add") openBulk(b.dataset.bulk);
   else if (b.dataset.bulk === "trip") openAssign();
   else if (b.dataset.openTrips) openTrips();
+  else if (b.dataset.delTrip) openTripDel(b.dataset.delTrip);
   else if (b.dataset.shareTrip) {
     const t = tripsOf().find(x => x.id === b.dataset.shareTrip);
     if (!t?.share || confirm("Make a shorter link? The current link stops working after the next check, so send friends the new one.")) shareTrip(b.dataset.shareTrip);
