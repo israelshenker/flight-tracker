@@ -780,6 +780,7 @@ def search(only_new=False):
     # Each line (email and push) starts with one word (user's request): UP, DOWN, BELOW,
     # NEW (nonstop), SKIPLAGGED or ONE-WAYS; then date, route, price, change.
     lines, items, counts, price_email_day = [], [], defaultdict(int), None
+    buys = []  # routes that crossed their "alert below" price: each gets its own push with a Book button
 
     def item(key, what, tone, price, sub):
         o, d, dep, ret, opts = split_key(key)
@@ -814,6 +815,7 @@ def search(only_new=False):
             if target and new < target and not (prev and prev < target):
                 tags.append(f"BELOW ${target:g}")
                 counts["below target"] += 1
+                buys.append((key, new, target, best))
             if cfg.get("alert_new_low", True) and low and new < low:
                 tags.append("NEW LOW")
                 counts["new low"] += 1
@@ -885,6 +887,20 @@ def search(only_new=False):
         price_email_day = day
         notify.send("Flight prices: " + title, "\n".join(lines) + f"\n\nAll fares: {PAGE_URL}", click=alert_link(alert),
                     thread=(f"prices-{day}", f"Flight prices {nice_date(day)}", state.get("price_email_day") != day))
+
+    # Buy alerts: one push per route that crossed its price, with a button straight to that flight's
+    # booking page (Google Flights -> the airline's own checkout).
+    for key, new, target, best in buys:
+        booking = best and book_link(key, best["flight"], adults)
+        flight = f"{best['airline']} {best['flight'][:2]} {best['flight'][2:]}" if best else ""
+        text = (f"{describe(key)}: ${new} per person, below your ${target:g}"
+                + (f"\n{flight} at {time_label(best['departs'])}" if best else "")
+                + "\nTap Book, pick the cheapest fare, Continue to the airline. Cancel free within 24 hours.")
+        buttons = ([(f"Book {flight}", booking)] if booking else []) + [("Open route", route_link(key))]
+        try:
+            notify.send_push(f"BUY {describe(key)}".replace(" · ", " "), text, buttons=buttons)
+        except Exception as e:
+            print(f"  buy push failed: {e}")
 
     # If most searches failed, Google is probably blocking us. Say so, but not every hour.
     attempted = done + len(errors)

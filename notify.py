@@ -30,7 +30,8 @@ def send_email(subject, body, thread=None, first=False, to=None):
         smtp.send_message(msg)
 
 
-def send_push(title, body, click=None):
+def send_push(title, body, click=None, buttons=None):
+    """buttons: [(label, url)] shown on the notification (ntfy allows 3); replaces "Open alert"."""
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
         print("  (push skipped: NTFY_TOPIC not set)")
@@ -41,7 +42,8 @@ def send_push(title, body, click=None):
         # opens it in the ntfy app; the "Open alert" button in it opens the alert on the page.
         data="\n".join(l for l in body.splitlines() if not l.startswith(("    http", "    Book "))).encode("utf-8")[:4000],
         headers={"Title": title.encode("ascii", "replace").decode(), "Tags": "airplane",
-                 **({"Actions": f"view, Open alert, {click}"} if click else {})},
+                 **({"Actions": "; ".join(f"view, {label}, {url}" for label, url in buttons[:3])} if buttons
+                    else {"Actions": f"view, Open alert, {click}"} if click else {})},
         method="POST",
     )
     urllib.request.urlopen(req, timeout=30).close()
