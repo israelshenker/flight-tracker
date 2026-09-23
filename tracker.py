@@ -1040,13 +1040,17 @@ def entry(stamp, f, prev=None):
     return e
 
 
-def trip_going(legs):
-    """{watch key: True if "Going"}: legs that start on the same side (Florida or not) as the
-    trip's earliest leg are Going; the rest are Coming back. Round trips count as Going."""
+def trip_going(legs, trip=None):
+    """{watch key: True if "Going"}. The trip says which way Going is (trip["going"]:
+    "from_fl" leaving Florida, "to_fl" heading to Florida); otherwise legs that start on the
+    same side (Florida or not) as the trip's earliest leg are Going. Round trips count as Going."""
     if not legs:
         return {}
-    first = min(legs, key=lambda w: (w["depart"], w["origin"]))
-    side = first["origin"] in FLORIDA
+    way = (trip or {}).get("going")
+    if way in ("from_fl", "to_fl"):
+        side = way == "from_fl"
+    else:
+        side = min(legs, key=lambda w: (w["depart"], w["origin"]))["origin"] in FLORIDA
     return {watch_key(w): bool(w.get("return")) or (w["origin"] in FLORIDA) == side for w in legs}
 
 
@@ -1073,7 +1077,7 @@ def trip_legs(cfg, latest, t, trails):
     no_skip = skiplagged_off_keys(cfg)
     onestop_off = onestop_off_keys(cfg)
     legs = [w for w in cfg.get("watches", []) if t["id"] in (w.get("trips") or []) and w["depart"] >= today]
-    going = trip_going(legs)
+    going = trip_going(legs, t)
     out = []
     for w in legs:
         k = watch_key(w)

@@ -756,20 +756,25 @@ async function newShare() {  // same derivation as docs/trip.html
   return {id, key: b64url(await sha("key:" + token)), token};
 }
 const randomId = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, "0")).join("");
-// Same rule as tracker.py's trip_going(): legs starting on the same side (Florida or not) as the
-// trip's earliest leg are "Going"; the rest "Coming back"; round trips count as Going.
-function tripGoing(legs) {
+// Same rule as tracker.py's trip_going(). Each trip says which way "Going" is (trip.going):
+// "from_fl" = flights leaving Florida, "to_fl" = flights heading to Florida, or unset = guess
+// from the trip's earliest flight. Round trips count as Going.
+const tripById = id => tripsOf().find(t => t.id === id);
+function tripGoing(legs, trip) {
   if (!legs.length) return new Map();
-  const first = legs.reduce((a, b) => (b.depart + b.origin < a.depart + a.origin ? b : a));
-  const side = FLORIDA_AIRPORTS.has(first.origin);
+  let side;
+  if (trip?.going === "from_fl") side = true;
+  else if (trip?.going === "to_fl") side = false;
+  else side = FLORIDA_AIRPORTS.has(legs.reduce((a, b) => (b.depart + b.origin < a.depart + a.origin ? b : a)).origin);
   return new Map(legs.map(w => [wKey(w), !!w.return || FLORIDA_AIRPORTS.has(w.origin) === side]));
 }
+const goingSelect = (t, attrs) => `<select ${attrs}><option value="">Going: guess from the first flight</option><option value="from_fl"${t.going === "from_fl" ? " selected" : ""}>Going = leaving Florida</option><option value="to_fl"${t.going === "to_fl" ? " selected" : ""}>Going = heading to Florida</option></select>`;
 function filterByTrip(watches) {
   if (!tripFilter) return watches;
   if (tripFilter === "none") return watches.filter(w => !(w.trips || []).length);
   const legs = watches.filter(w => (w.trips || []).includes(tripFilter));
   if (!dirFilter) return legs;
-  const going = tripGoing(legs);
+  const going = tripGoing(legs, tripById(tripFilter));
   return legs.filter(w => going.get(wKey(w)) === (dirFilter === "going"));
 }
 function tripFilterHtml() {
@@ -778,12 +783,9 @@ function tripFilterHtml() {
   if (tripFilter && tripFilter !== "none" && !ts.some(t => t.id === tripFilter)) { tripFilter = ""; dirFilter = ""; }
   return `<div class="tripfilter"><label class="small muted" for="tripFilter">Trip</label>
     <select id="tripFilter"><option value="">All routes</option>${ts.map(t => `<option value="${esc(t.id)}"${t.id === tripFilter ? " selected" : ""}>${esc(t.name)}${t.person ? ` · ${esc(t.person)}` : ""}</option>`).join("")}<option value="none"${tripFilter === "none" ? " selected" : ""}>Not in a trip</option></select>
-    ${tripFilter && tripFilter !== "none" ? `<label class="small muted" for="dirFilter">Direction</label><select id="dirFilter"><option value="">Both</option><option value="going"${dirFilter === "going" ? " selected" : ""}>Going</option><option value="back"${dirFilter === "back" ? " selected" : ""}>Coming back</option></select>` : ""}
+    ${tripFilter && tripFilter !== "none" ? `<label class="small muted" for="dirFilter">Direction</label><select id="dirFilter"><option value="">Both</option><option value="going"${dirFilter === "going" ? " selected" : ""}>Going</option><option value="back"${dirFilter === "back" ? " selected" : ""}>Coming back</option></select>${goingSelect(tripById(tripFilter), 'id="tripGoingSel" title="Which way is Going for this trip"')}` : ""}
     <button class="link small" data-open-trips="1">Trips…</button></div>${shareBarHtml()}${tripBestHtml()}`;
 }
-// With a trip picked: its friends-and-family link, ready to copy (or a button to share it).
-// With a trip picked: the cheapest way to fly it — the cheapest "Going" leg plus the cheapest
-// "Coming back" leg, and what the pair costs together (user's request).
 // With a trip picked: the cheapest round trip — the cheapest "Going" leg plus the cheapest
 // "Coming back" leg — with its own Nonstop / Best price switch and optional fixed dates.
 let rtBest = false, rtOut = "", rtBack = "";  // resets on load; "" date = cheapest date
@@ -792,7 +794,7 @@ function tripBestHtml() {
   if (!t) return "";
   const legs = tracked().filter(w => (w.trips || []).includes(t.id) && !w.return);
   if (!legs.length) return "";
-  const going = tripGoing(legs);
+  const going = tripGoing(legs, t);
   const side = g => legs.filter(w => going.get(wKey(w)) === g);
   const outDates = [...new Set(side(true).map(w => w.depart))].sort(), backDates = [...new Set(side(false).map(w => w.depart))].sort();
   if (!outDates.includes(rtOut)) rtOut = "";
@@ -870,6 +872,7 @@ function renderTripList() {
     <div class="row" style="margin-bottom:6px">
       <label class="f">Name <input type="text" data-trip-field="name" data-i="${i}" value="${esc(t.name)}" maxlength="60"></label>
       <label class="f">Person (optional) <input type="text" data-trip-field="person" data-i="${i}" value="${esc(t.person || "")}" maxlength="40"></label>
+      <label class="f">Direction ${goingSelect(t, `data-trip-going="${i}"`)}</label>
       <span class="small muted" style="align-self:center">${counts[t.id] || 0} route/date${counts[t.id] === 1 ? "" : "s"}</span>
     </div>
     <div class="inline small"><label><input type="checkbox" data-trip-share="${i}"${t.share ? " checked" : ""}> Share with a link (read-only page)</label>
@@ -898,6 +901,7 @@ $("tripList").addEventListener("change", e => {
     if (el.checked) newShare().then(x => { t.share = x; renderTripList(); }); else { delete t.share; renderTripList(); }
   } else if (el.dataset.tripSkip) tripDraft[+el.dataset.tripSkip].skiplagged = el.checked;
   else if (el.dataset.tripDelete) tripDraft[+el.dataset.tripDelete].deleted = el.checked;
+  else if (el.dataset.tripGoing) { const t = tripDraft[+el.dataset.tripGoing]; if (el.value) t.going = el.value; else delete t.going; }
   else if (el.dataset.tripUnsub) {
     const t = tripDraft[+el.dataset.tripUnsub], set = new Set(t.remove_subs || []);
     el.checked ? set.add(el.value) : set.delete(el.value);
@@ -926,6 +930,7 @@ $("btnSaveTrips").onclick = () => {
       c.trips = draft.filter(t => !t.deleted).map(t => {
         const x = {id: t.id, name: t.name.trim()};
         if (t.person?.trim()) x.person = t.person.trim();
+        if (t.going) x.going = t.going;
         if (t.skiplagged) x.skiplagged = true;
         if (t.share) x.share = t.share;
         // Friends removed here stop getting emails at the next check; keep only ids still signed up.
@@ -1663,6 +1668,13 @@ document.addEventListener("change", e => {
   if (t.id === "rtOut") { rtOut = t.value; render(); return; }
   if (t.id === "rtBack") { rtBack = t.value; render(); return; }
   if (t.id === "dirFilter") { dirFilter = t.value; render(); return; }
+  if (t.id === "tripGoingSel") {  // saved with the trip, so friend pages and emails follow it too
+    const id = tripFilter, v = t.value;
+    if (!needToken(() => render())) { render(); return; }
+    save(() => updateConfig(c => { const x = (c.trips || []).find(y => y.id === id); if (x) { if (v) x.going = v; else delete x.going; } },
+      "Update trips from web page"));
+    return;
+  }
   if (t.name === "sortby") { sortBest = t.value === "best"; render(); return; }
   if (t.dataset?.sel) { t.checked ? selected.add(t.dataset.sel) : selected.delete(t.dataset.sel); render(); }
   else if (t.dataset?.selDay) {
