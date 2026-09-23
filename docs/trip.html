@@ -58,6 +58,13 @@ details{margin-top:10px}
 summary{cursor:pointer;color:var(--accent);font-size:14px}
 .empty{text-align:center;padding:40px 10px}
 td.times{color:var(--muted);font-size:13px}
+.rt{border-color:var(--accent);margin-top:14px}
+.rthead{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:6px}
+.rttotal{margin-left:auto;font-size:18px}
+.rtleg{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.rtlabel{font-size:12px;border-radius:999px;padding:1px 8px;background:var(--soft);color:var(--accent)}
+.rtprice{margin-left:auto}
+.rt select{font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
 .skipnote{margin-top:10px;font-size:14px;line-height:1.6}
 .bagnote{margin-top:10px;font-size:13px;color:var(--up)}
 .bagflag{color:var(--up);font-weight:700}
@@ -123,6 +130,7 @@ function day(leg) {
 const moveClass = leg => { const m = day(leg); return !m || m.base == null || m.base === leg.price ? "" : leg.price > m.base ? "up" : "down"; };
 const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== leg.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
 
+let rtBest = false, rtOut = "", rtBack = "";  // cheapest round trip card: its own switch and dates
 let sortBest = false;  // false = order by the nonstop fare, true = by the cheapest of the three
 const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
@@ -284,12 +292,39 @@ function bagNote(l) {
   if (!bad.length) return "";
   return bad.map(([a, what]) => `${a}: the ${what} fee isn't included in this price — check ${a}'s own site`).join("; ");
 }
+// The cheapest way to fly the trip: cheapest Going leg + cheapest Coming back leg, with a
+// Nonstop / Best price switch and optional fixed dates (same as the owner's page).
+function roundTripHtml() {
+  const one = trip.legs.filter(l => !l.ret);
+  const side = g => one.filter(l => l.going === g);
+  const outDates = [...new Set(side(true).map(l => l.dep))].sort(), backDates = [...new Set(side(false).map(l => l.dep))].sort();
+  if (!outDates.length) return "";
+  if (!outDates.includes(rtOut)) rtOut = "";
+  if (!backDates.includes(rtBack)) rtBack = "";
+  const best = (g, day) => side(g).filter(l => l.price != null && (!day || l.dep === day)).map(l => {
+    const price = rtBest ? Math.min(l.price, l.onestop?.price ?? Infinity, l.skip?.price ?? Infinity) : l.price;
+    const kind = price === l.price ? "nonstop" : price === l.onestop?.price ? "1 stop" : "skiplagged";
+    return {l, price, kind, airline: kind === "1 stop" ? l.onestop.airline : kind === "skiplagged" ? l.skip.airline : l.airline};
+  }).sort((a, b) => a.price - b.price)[0];
+  const out = best(true, rtOut), back = backDates.length ? best(false, rtBack) : null;
+  const pick = (id, dates, val) => `<select id="${id}"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
+  const row = (x, label, sel) => `<div class="rtleg"><span class="rtlabel">${label}</span>${sel}${x
+    ? `<button class="link" data-open="${trip.legs.indexOf(x.l)}"><b>${esc(x.l.o)} → ${esc(x.l.d)}</b></button><span class="muted small">${esc(niceDate(x.l.dep))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b class="rtprice">$${x.price}</b>`
+    : `<span class="muted small">no fare on that date</span>`}</div>`;
+  const total = out && (back || !backDates.length) ? out.price + (back?.price || 0) : null;
+  return `<div class="card rt"><div class="rthead"><b>Cheapest ${backDates.length ? "round trip" : "flight"}</b>
+      <span class="opts small"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}> Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}> Best price</label></span>
+      <b class="rttotal">${total != null ? `$${total}${backDates.length ? " per person" : ""}` : "—"}</b></div>
+    ${row(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? row(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
+    <div class="muted small" style="margin-top:6px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."} Pick dates to price a specific trip, or leave "Cheapest date".</div></div>`;
+}
 function render() {
   const going = trip.legs.filter(l => l.going), back = trip.legs.filter(l => !l.going);
   const pick = open != null && trip.legs[open];
   $("app").innerHTML = `<h1>${esc(trip.name || "Trip")}</h1>
     <div class="muted small">${trip.person ? `For ${esc(trip.person)} · ` : ""}Cheapest nonstop fare per person · updated ${esc(ago(trip.updated))} · checked about every hour</div>
     ${airportKey()}
+    ${roundTripHtml()}
     ${trip.legs.some(l => l.skip || l.onestop) ? `<div class="opts" style="margin-top:10px"><span class="small muted">Sort by</span>
       <label class="small"><input type="radio" name="sortby" value="nonstop"${sortBest ? "" : " checked"}> Nonstop</label>
       <label class="small"><input type="radio" name="sortby" value="best"${sortBest ? " checked" : ""}> Best price</label></div>` : ""}
@@ -332,6 +367,13 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("change", e => {
+  if (e.target.name === "rtmode" || e.target.id === "rtOut" || e.target.id === "rtBack") {
+    if (e.target.name === "rtmode") rtBest = e.target.value === "best";
+    else if (e.target.id === "rtOut") rtOut = e.target.value;
+    else rtBack = e.target.value;
+    render();
+    return;
+  }
   if (e.target.name === "sortby") {
     sortBest = e.target.value === "best";
     const wraps = [...document.querySelectorAll(".tablewrap")].map(w => w.scrollLeft);

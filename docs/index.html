@@ -769,28 +769,40 @@ function tripFilterHtml() {
 // With a trip picked: its friends-and-family link, ready to copy (or a button to share it).
 // With a trip picked: the cheapest way to fly it — the cheapest "Going" leg plus the cheapest
 // "Coming back" leg, and what the pair costs together (user's request).
+// With a trip picked: the cheapest round trip — the cheapest "Going" leg plus the cheapest
+// "Coming back" leg — with its own Nonstop / Best price switch and optional fixed dates.
+let rtBest = false, rtOut = "", rtBack = "";  // resets on load; "" date = cheapest date
 function tripBestHtml() {
   const t = tripsOf().find(x => x.id === tripFilter);
   if (!t) return "";
   const legs = tracked().filter(w => (w.trips || []).includes(t.id) && !w.return);
   if (!legs.length) return "";
   const going = tripGoing(legs);
-  const best = side => legs.filter(w => going.get(wKey(w)) === side).map(w => {
+  const side = g => legs.filter(w => going.get(wKey(w)) === g);
+  const outDates = [...new Set(side(true).map(w => w.depart))].sort(), backDates = [...new Set(side(false).map(w => w.depart))].sort();
+  if (!outDates.includes(rtOut)) rtOut = "";
+  if (!backDates.includes(rtBack)) rtBack = "";
+  const best = (g, day) => side(g).filter(w => !day || w.depart === day).map(w => {
     const cur = latest[wKey(w)];
     if (!cur || cur.price == null) return null;
     const one = oneFare(cur, w), skip = skipFare(cur, w);
-    const cheapest = sortBest ? Math.min(cur.price, one?.price ?? Infinity, skip?.price ?? Infinity) : cur.price;
-    const kind = cheapest === cur.price ? "nonstop" : cheapest === one?.price ? "1 stop" : "skiplagged";
-    return {w, cur, price: cheapest, kind, airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : cur.airline};
+    const price = rtBest ? Math.min(cur.price, one?.price ?? Infinity, skip?.price ?? Infinity) : cur.price;
+    const kind = price === cur.price ? "nonstop" : price === one?.price ? "1 stop" : "skiplagged";
+    return {w, price, kind, airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : cur.airline};
   }).filter(Boolean).sort((a, b) => a.price - b.price)[0];
-  const out = best(true), back = best(false);
-  if (!out) return "";
-  const leg = (x, label) => `<div class="cline" style="gap:8px"><span class="tag">${label}</span><a href="#r=${encodeURIComponent(wKey(x.w))}" data-open-route="${esc(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
-    <span class="muted small">${esc(niceDate(x.w.depart))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto">$${x.price}</b></div>`;
+  const out = best(true, rtOut), back = backDates.length ? best(false, rtBack) : null;
+  const pick = (id, dates, val) => `<select id="${id}" style="font-size:13px;padding:3px 6px"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
+  const leg = (x, label, sel) => `<div class="cline" style="gap:8px;flex-wrap:wrap;white-space:normal"><span class="tag">${label}</span>${sel}${x
+    ? `<a href="#r=${encodeURIComponent(wKey(x.w))}" data-open-route="${esc(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
+      <span class="muted small">${esc(niceDate(x.w.depart))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto">$${x.price}</b>`
+    : `<span class="muted small">no fare on that date</span>`}</div>`;
+  const total = out && (back || !backDates.length) ? out.price + (back?.price || 0) : null;
   return `<div class="card" style="border-color:var(--accent)">
-    <div class="row" style="margin:0 0 6px"><b>Cheapest ${back ? "round trip" : "flight"} for ${esc(t.name)}</b><b style="margin-left:auto;font-size:18px">$${out.price + (back?.price || 0)}${back ? " total per person" : ""}</b></div>
-    ${leg(out, "Going")}${back ? leg(back, "Coming back") : ""}
-    <div class="muted small" style="margin-top:6px">Cheapest date in each direction${sortBest ? ", counting 1-stop and skiplagged fares" : " (nonstop; switch to Best price to include 1-stop and skiplagged)"}. They can be different days.</div>
+    <div class="row" style="margin:0 0 6px;align-items:center"><b>Cheapest ${backDates.length ? "round trip" : "flight"} for ${esc(t.name)}</b>
+      <div class="seg" style="font-size:13px"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}>Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}>Best price</label></div>
+      <b style="margin-left:auto;font-size:18px">${total != null ? `$${total}${backDates.length ? " total per person" : ""}` : "—"}</b></div>
+    ${leg(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? leg(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
+    <div class="muted small" style="margin-top:6px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."} Pick dates to price a specific trip, or leave "Cheapest date".</div>
   </div>`;
 }
 function shareBarHtml() {
@@ -1575,7 +1587,10 @@ for (const [f, t] of [["bulkFrom", "bulkTo"]]) {
 document.addEventListener("change", e => {
   const t = e.target;
   if (t.id === "airportFilter") { airportFilter = t.value; render(); return; }
-  if (t.id === "tripFilter") { tripFilter = t.value; dirFilter = ""; render(); return; }
+  if (t.id === "tripFilter") { tripFilter = t.value; dirFilter = ""; rtOut = rtBack = ""; render(); return; }
+  if (t.name === "rtmode") { rtBest = t.value === "best"; render(); return; }
+  if (t.id === "rtOut") { rtOut = t.value; render(); return; }
+  if (t.id === "rtBack") { rtBack = t.value; render(); return; }
   if (t.id === "dirFilter") { dirFilter = t.value; render(); return; }
   if (t.name === "sortby") { sortBest = t.value === "best"; render(); return; }
   if (t.dataset?.sel) { t.checked ? selected.add(t.dataset.sel) : selected.delete(t.dataset.sel); render(); }
