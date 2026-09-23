@@ -628,6 +628,31 @@ function bookLink(w, flight) {
   int(19, 2, bytes);
   return `https://www.google.com/travel/flights/booking?tfs=${encodeURIComponent(btoa(String.fromCharCode(...bytes)))}&hl=en&curr=USD`;
 }
+// Google Flights' booking page for a round trip on two exact flights: one ticket, so both must be
+// on the same airline and the return must reverse the route. legs: [{from, to, date, flight}].
+function roundTripBookLink(legs, adults, carry, checked) {
+  const bytes = [];
+  const varint = (n, out) => { while (n > 127) { out.push((n & 127) | 128); n >>>= 7; } out.push(n); };
+  const field = (num, data, out) => { varint(num << 3 | 2, out); varint(data.length, out); out.push(...data); };
+  const int = (num, v, out) => { varint(num << 3, out); varint(v, out); };
+  const str = x => [...new TextEncoder().encode(x)];
+  for (const l of legs) {
+    const m = /^([A-Z0-9]{2})(\d+)$/.exec(l.flight || "");
+    if (!m) return null;
+    const seg = [], d = [], a = [], b = [];
+    field(1, str(l.from), seg); field(2, str(l.date), seg); field(3, str(l.to), seg); field(5, str(m[1]), seg); field(6, str(m[2]), seg);
+    field(2, str(l.date), d); field(4, seg, d);
+    field(2, str(l.from), a); field(13, a, d);
+    field(2, str(l.to), b); field(14, b, d);
+    int(5, 0, d);
+    field(3, d, bytes);
+  }
+  for (let i = 0; i < (adults || 1); i++) int(8, 1, bytes);
+  int(9, 1, bytes);
+  if (carry || checked) { const bg = []; if (carry) int(2, carry, bg); if (checked) int(3, checked, bg); field(13, bg, bytes); }
+  int(19, 1, bytes);
+  return `https://www.google.com/travel/flights/booking?tfs=${encodeURIComponent(btoa(String.fromCharCode(...bytes)))}&hl=en&curr=USD`;
+}
 // The cheapest flight on a route (one-way only), for the "Book" link.
 function cheapestFlight(cur) {
   const f = (cur?.flights || []).filter(x => x.flight).sort((x, y) => x.price - y.price || x.departs.localeCompare(y.departs))[0];
@@ -881,7 +906,8 @@ function tripBestHtml() {
     const kind = price === nsPrice ? "nonstop" : price === oneP ? "1 stop" : "skiplagged";
     const fl = (cur.flights || []).filter(f => f.flight && f.airline === nsAir).sort((x, y) => x.price - y.price || x.departs.localeCompare(y.departs))[0];
     const book = kind === "nonstop" ? (fl && bookLink(w, fl.flight)) || googleLink(w) : kind === "1 stop" ? oneStopLink(w) : null;
-    return {w, book, dep: w.depart, from: w.origin, to: w.dest, price, pax: parseOpts(optsCode(w)).adults || config.adults || 1, kind,
+    const po = parseOpts(optsCode(w));
+    return {w, book, flight: kind === "nonstop" ? fl?.flight : null, carry: po.carry_on, checked: po.checked, dep: w.depart, from: w.origin, to: w.dest, price, pax: parseOpts(optsCode(w)).adults || config.adults || 1, kind,
             airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : nsAir, bag: kind === "nonstop" && cur.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: cur.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
   const apPick = codes => `<select id="rtAp" style="font-size:13px;padding:3px 6px" title="Only flights leaving from or going to this airport"><option value="">All airports</option>${codes.map(a => `<option value="${esc(a)}"${a === rtAp ? " selected" : ""}>${esc(a)}</option>`).join("")}</select>`;
@@ -892,6 +918,13 @@ function tripBestHtml() {
   const pairOk = (o, b) => !b || !rtAirport || ((rtAirport === "dest" || b.to === o.from) && (rtAirport === "dep" || b.from === o.to));
   const plan = planTrip(cands(true, rtOut), backDates.length ? cands(false, rtBack) : [], t.car, pairOk);
   const out = plan?.out, back = plan?.back;
+  // One round-trip ticket: both nonstop on the same airline, the return reversing the route.
+  const oneTicket = out && back && out.kind === "nonstop" && back.kind === "nonstop" && out.flight && back.flight
+    && out.flight.slice(0, 2) === back.flight.slice(0, 2) && back.from === out.to && back.to === out.from && out.pax === back.pax;
+  const rtBook = oneTicket && roundTripBookLink([{from: out.from, to: out.to, date: out.dep, flight: out.flight}, {from: back.from, to: back.to, date: back.dep, flight: back.flight}], out.pax, out.carry, out.checked);
+  const rtBookHtml = !back ? "" : rtBook
+    ? `<div class="small" style="margin-top:6px"><a href="${esc(rtBook)}" target="_blank" rel="noopener noreferrer"><b>Book round trip ↗</b></a> <span class="muted">one ${esc(out.airline)} ticket; Google prices it as a round trip, which can differ from the two fares above</span></div>`
+    : `<div class="small muted" style="margin-top:6px">Book the two flights separately (${out.kind !== "nonstop" || back.kind !== "nonstop" ? "not both nonstop" : out.flight?.slice(0, 2) !== back.flight?.slice(0, 2) ? "different airlines" : back.from !== out.to || back.to !== out.from ? "different airports" : "no flight numbers"}, so not one round-trip ticket).</div>`;
   const pick = (id, dates, val) => `<select id="${id}" style="font-size:13px;padding:3px 6px"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
   const leg = (x, label, sel) => `<div class="cline" style="gap:8px;flex-wrap:wrap;white-space:normal"><span class="tag">${label}</span>${sel}${x
     ? `<a href="#r=${encodeURIComponent(wKey(x.w))}" data-open-route="${esc(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
@@ -903,6 +936,7 @@ function tripBestHtml() {
       <b style="margin-left:auto;font-size:18px">${plan ? `${money(plan.total)} total` : "—"}</b></div>
     <div class="row" style="margin:0 0 6px;gap:10px;align-items:center">${codes.length > 2 ? apPick(codes) : ""}${backDates.length ? airportPick() : ""}${bagPick(unpriced)}</div>
     ${leg(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? leg(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
+    ${rtBookHtml}
     ${plan ? `<div class="small" style="margin-top:6px">${esc(planSummary(plan))}</div>` : ""}
     ${plan?.back ? `<div class="small" style="margin-top:4px">Car for these dates: pick up ${esc(plan.out.to)} ${esc(niceDate(plan.out.dep))}, return ${esc(plan.back.from)} ${esc(niceDate(plan.back.dep))} · <a href="https://www.costcotravel.com/Rental-Cars" target="_blank" rel="noopener">check rates on Costco Travel ↗</a></div>` : ""}
     <div class="muted small" style="margin-top:4px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."} ${t.car?.day || Object.keys(t.car?.at || {}).length ? "Picks the dates with the lowest total, rental car included." : `No rental car cost set — add one in <button class="link small" data-open-trips="1">Trips…</button> to include it.`} Pick dates to price a specific trip.${[out, back].some(x => x?.bag) ? ` <span style="color:var(--up)">* bag fee not included in that fare.</span>` : ""}</div>

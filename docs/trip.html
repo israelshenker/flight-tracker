@@ -346,6 +346,31 @@ function planSummary(p) {
   const carText = p.car ? ` + car ${p.car.days} day${p.car.days > 1 ? "s" : ""} × ${money(p.car.rate)} at ${p.car.at}${p.car.oneway ? ` + ${money(p.car.oneway)} to return it at ${p.car.returnAt}` : ""} = ${money(p.car.total)}` : "";
   return `Flights ${money(p.flights)}${perPerson}${carText}`;
 }
+// Google Flights' booking page for a round trip on two exact flights: one ticket, so both must be
+// on the same airline and the return must reverse the route. legs: [{from, to, date, flight}].
+function roundTripBookLink(legs, adults, carry, checked) {
+  const bytes = [];
+  const varint = (n, out) => { while (n > 127) { out.push((n & 127) | 128); n >>>= 7; } out.push(n); };
+  const field = (num, data, out) => { varint(num << 3 | 2, out); varint(data.length, out); out.push(...data); };
+  const int = (num, v, out) => { varint(num << 3, out); varint(v, out); };
+  const str = x => [...new TextEncoder().encode(x)];
+  for (const l of legs) {
+    const m = /^([A-Z0-9]{2})(\d+)$/.exec(l.flight || "");
+    if (!m) return null;
+    const seg = [], d = [], a = [], b = [];
+    field(1, str(l.from), seg); field(2, str(l.date), seg); field(3, str(l.to), seg); field(5, str(m[1]), seg); field(6, str(m[2]), seg);
+    field(2, str(l.date), d); field(4, seg, d);
+    field(2, str(l.from), a); field(13, a, d);
+    field(2, str(l.to), b); field(14, b, d);
+    int(5, 0, d);
+    field(3, d, bytes);
+  }
+  for (let i = 0; i < (adults || 1); i++) int(8, 1, bytes);
+  int(9, 1, bytes);
+  if (carry || checked) { const bg = []; if (carry) int(2, carry, bg); if (checked) int(3, checked, bg); field(13, bg, bytes); }
+  int(19, 1, bytes);
+  return `https://www.google.com/travel/flights/booking?tfs=${encodeURIComponent(btoa(String.fromCharCode(...bytes)))}&hl=en&curr=USD`;
+}
 function roundTripHtml() {
   const one = trip.legs.filter(l => !l.ret);
   const side = g => one.filter(l => l.going === g);
@@ -363,7 +388,10 @@ function roundTripHtml() {
     const price = rtBest ? Math.min(nsPrice, oneP, skipP) : nsPrice;
     if (!isFinite(price)) return null;
     const kind = price === nsPrice ? "nonstop" : price === oneP ? "1 stop" : "skiplagged";
-    return {l, book: kind === "nonstop" ? l.link : kind === "1 stop" ? l.link1 : null, dep: l.dep, from: l.o, to: l.d, price, pax: l.pax || 1, kind,
+    const fl = (l.flights || []).filter(f => f.flight && f.airline === nsAir).sort((x, y) => x.price - y.price || x.departs.localeCompare(y.departs))[0];
+    const opt = (l.key || "").split("|")[3] || "";  // route options: c1 carry-on, b2 checked bags
+    return {l, book: kind === "nonstop" ? l.link : kind === "1 stop" ? l.link1 : null, flight: kind === "nonstop" ? fl?.flight : null,
+            carry: +(/(?:^|[^a-z])c(\d)/.exec(opt)?.[1] || 0), checked: +(/b(\d)/.exec(opt)?.[1] || 0), dep: l.dep, from: l.o, to: l.d, price, pax: l.pax || 1, kind,
             airline: kind === "1 stop" ? l.onestop.airline : kind === "skiplagged" ? l.skip.airline : nsAir, bag: kind === "nonstop" && l.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: l.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
   const apPick = codes => `<select id="rtAp" style="font-size:13px;padding:3px 6px" title="Only flights leaving from or going to this airport"><option value="">All airports</option>${codes.map(a => `<option value="${esc(a)}"${a === rtAp ? " selected" : ""}>${esc(a)}</option>`).join("")}</select>`;
@@ -374,6 +402,13 @@ function roundTripHtml() {
   const pairOk = (o, b) => !b || !rtAirport || ((rtAirport === "dest" || b.to === o.from) && (rtAirport === "dep" || b.from === o.to));
   const plan = planTrip(cands(true, rtOut), backDates.length ? cands(false, rtBack) : [], trip.car, pairOk);
   const out = plan?.out, back = plan?.back;
+  // One round-trip ticket: both nonstop on the same airline, the return reversing the route.
+  const oneTicket = out && back && out.kind === "nonstop" && back.kind === "nonstop" && out.flight && back.flight
+    && out.flight.slice(0, 2) === back.flight.slice(0, 2) && back.from === out.to && back.to === out.from && out.pax === back.pax;
+  const rtBook = oneTicket && roundTripBookLink([{from: out.from, to: out.to, date: out.dep, flight: out.flight}, {from: back.from, to: back.to, date: back.dep, flight: back.flight}], out.pax, out.carry, out.checked);
+  const rtBookHtml = !back ? "" : rtBook
+    ? `<div class="small" style="margin-top:6px"><a href="${esc(rtBook)}" target="_blank" rel="noopener noreferrer"><b>Book round trip ↗</b></a> <span class="muted">one ${esc(out.airline)} ticket; Google prices it as a round trip, which can differ from the two fares above</span></div>`
+    : `<div class="small muted" style="margin-top:6px">Book the two flights separately (${out.kind !== "nonstop" || back.kind !== "nonstop" ? "not both nonstop" : out.flight?.slice(0, 2) !== back.flight?.slice(0, 2) ? "different airlines" : back.from !== out.to || back.to !== out.from ? "different airports" : "no flight numbers"}, so not one round-trip ticket).</div>`;
   const pick = (id, dates, val) => `<select id="${id}"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
   const row = (x, label, sel) => `<div class="rtleg"><span class="rtlabel">${label}</span>${sel}${x
     ? `<button class="link" data-open="${trip.legs.indexOf(x.l)}"><b>${esc(x.l.o)} → ${esc(x.l.d)}</b></button><span class="muted small">${esc(niceDate(x.l.dep))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b class="rtprice" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>${x.book ? ` <a class="small" href="${esc(x.book)}" target="_blank" rel="noopener noreferrer">Book ↗</a>` : ""}`
@@ -383,6 +418,7 @@ function roundTripHtml() {
       <b class="rttotal">${plan ? `${money(plan.total)} total` : "—"}</b></div>
     <div class="rtleg" style="border-top:0">${codes.length > 2 ? apPick(codes) : ""}${backDates.length ? airportPick() : ""}${bagPick(unpriced)}</div>
     ${row(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? row(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
+    ${rtBookHtml}
     ${plan ? `<div class="small" style="margin-top:6px">${esc(planSummary(plan))}</div>` : ""}
     <div class="muted small" style="margin-top:4px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."}${trip.car ? " Picks the dates with the lowest total, rental car included." : ""} Pick dates to price a specific trip.${[out, back].some(x => x?.bag) ? ` <span style="color:var(--up)">* bag fee not included in that fare (tap the route for details).</span>` : ""}</div></div>`;
 }
