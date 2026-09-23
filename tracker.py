@@ -344,6 +344,10 @@ def fares_for(route, itineraries):
         # Google couldn't add this airline's bag fee, so the fare is missing it (see parse()).
         if (opt["carry_on"] and it.get("no_carry_fee")) or (opt["checked"] and it.get("no_checked_fee")):
             missing[it["airline"]] = "carry-on" if opt["carry_on"] and it.get("no_carry_fee") else "checked bag"
+        elif it.get("bags_unknown") and it["airline"] not in missing:
+            # No bags on this route, but Google can't price this airline's bags at all (e.g.
+            # Allegiant): flag it anyway so nobody assumes a bag would cost the same (user's request).
+            missing[it["airline"]] = "bag"
         a, p = it["airline"], it["price"]
         if p < airlines.get(a, 10**9):
             airlines[a], times[a] = p, []

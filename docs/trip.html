@@ -308,7 +308,9 @@ function airportKey() {
 function bagNote(l) {
   const bad = Object.entries(l.bagless || {});
   if (!bad.length) return "";
-  return bad.map(([a, what]) => `${a}: the ${what} fee isn't included in this price — check ${a}'s own site`).join("; ");
+  return bad.map(([a, what]) => what === "bag"
+    ? `${a}: Google can't price ${a}'s bag fees, so bags may cost extra on top of this fare — check ${a}'s own site`
+    : `${a}: the ${what} fee isn't included in this price — check ${a}'s own site`).join("; ");
 }
 // The cheapest way to fly the trip: cheapest Going leg + cheapest Coming back leg, with a
 // Nonstop / Best price switch and optional fixed dates (same as the owner's page).
@@ -351,7 +353,7 @@ function render() {
     ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
     ${pick && !pick.going ? detail(open) : ""}${table(back, "Coming back")}
-    ${trip.legs.some(l => bagNote(l)) ? `<p class="small" style="margin-top:14px;color:var(--up)">* The airline's bag fee isn't included in that price: Google doesn't have it for ${esc([...new Set(trip.legs.flatMap(l => Object.keys(l.bagless || {})))].join(", "))}. Check the airline's own site.</p>` : ""}
+    ${trip.legs.some(l => bagNote(l)) ? `<p class="small" style="margin-top:14px;color:var(--up)">* Bag fees aren't included in that price: Google can't price bags for ${esc([...new Set(trip.legs.flatMap(l => Object.keys(l.bagless || {})))].join(", "))}. Check the airline's own site.</p>` : ""}
     <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Blue "1 stop" = a cheaper fare with one connection. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
 }
 document.addEventListener("click", e => {

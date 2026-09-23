@@ -1008,7 +1008,9 @@ const CITY = {HNL:"Honolulu",OGG:"Maui",OAK:"Oakland",BUR:"Burbank",LGB:"Long Be
 // is missing them: e.g. Allegiant's carry-on. tracker.py stores this as `bagless` per route.
 function bagNote(cur) {
   const bad = Object.entries(cur?.bagless || {});
-  return bad.length ? bad.map(([a, what]) => `${a}: the ${what} fee isn't in this price (Google doesn't have it) — check ${a}'s site`).join("; ") : "";
+  return bad.length ? bad.map(([a, what]) => what === "bag"
+    ? `${a}: Google can't price ${a}'s bag fees, so bags may cost extra on top of this fare — check ${a}'s site`
+    : `${a}: the ${what} fee isn't in this price (Google doesn't have it) — check ${a}'s site`).join("; ") : "";
 }
 const skiplaggedLink = w => `https://skiplagged.com/flights/${w.origin}/${w.dest}/${w.depart}${w.return ? "/" + w.return : ""}`;
 // The route's skiplagged fare, only when it beats the cheapest nonstop.

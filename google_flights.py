@@ -122,6 +122,8 @@ def parse(html):
                 "flight": flight_id(seg),
                 "no_carry_fee": bool(len(bags) > 2 and bags[2]),
                 "no_checked_fee": bool(len(bags) > 1 and bags[1]),
+                # Set even when no bags were asked for: Google can't price this airline's bags.
+                "bags_unknown": bool(len(bags) > 0 and bags[0]),
             })
     return out
 
