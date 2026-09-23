@@ -39,7 +39,7 @@ def send_push(title, body, click=None):
         f"https://ntfy.sh/{topic}",
         # Pushes skip the per-route links; ntfy caps messages at 4 KB. Tapping the notification
         # opens it in the ntfy app; the "Open alert" button in it opens the alert on the page.
-        data="\n".join(l for l in body.splitlines() if not l.startswith("    http")).encode("utf-8")[:4000],
+        data="\n".join(l for l in body.splitlines() if not l.startswith(("    http", "    Book "))).encode("utf-8")[:4000],
         headers={"Title": title.encode("ascii", "replace").decode(), "Tags": "airplane",
                  **({"Actions": f"view, Open alert, {click}"} if click else {})},
         method="POST",

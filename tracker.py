@@ -625,6 +625,26 @@ def save_alerts(new):
     write_json(ALERTS, (sorted(new, key=lambda a: a["at"], reverse=True) + [a for a in old if a["id"] not in ids])[:ALERTS_KEPT])
 
 
+def book_link(key, flight, adults):
+    """Google Flights' booking page for one exact flight ("B6306"), with the route's passengers and
+    bags: the airline's fares with a Continue button into the airline's own checkout. Same as the
+    page's bookLink(). One-way routes only; None if the flight number is missing."""
+    m = re.fullmatch(r"([A-Z0-9]{2})(\d+)", flight or "")
+    o, d, dep, ret, opts = split_key(key)
+    if not m or ret:
+        return None
+    opt = parse_options(opts)
+    F, I = google_flights._field, google_flights._int
+    seg = F(1, o.encode()) + F(2, dep.encode()) + F(3, d.encode()) + F(5, m.group(1).encode()) + F(6, m.group(2).encode())
+    leg = F(2, dep.encode()) + F(4, seg) + F(13, F(2, o.encode())) + F(14, F(2, d.encode())) + I(5, 0)
+    info = F(3, leg) + b"".join(I(8, 1) for _ in range(opt["adults"] or adults)) + I(9, 1)
+    if opt["carry_on"] or opt["checked"]:
+        info += F(13, (I(2, opt["carry_on"]) if opt["carry_on"] else b"") + (I(3, opt["checked"]) if opt["checked"] else b""))
+    info += I(19, 2)
+    return "https://www.google.com/travel/flights/booking?" + urllib.parse.urlencode(
+        {"tfs": base64.b64encode(info).decode(), "hl": "en", "curr": "USD"})
+
+
 def route_link(key):
     """Page link that opens this route's date and card."""
     return f"{PAGE_URL}#r={urllib.parse.quote(key, safe='')}"
@@ -777,6 +797,12 @@ def search(only_new=False):
         new = min(f["airlines"].values()) if f["airlines"] else None
         link = f"\n    {route_link(key)}"
         if new:
+            # Email: a Book link for the cheapest flight, one tap to its booking page (pushes drop it).
+            best = min((x for x in f.get("flights", []) if x.get("flight") and x["price"] == new),
+                       key=lambda x: x["departs"], default=None)
+            booking = best and book_link(key, best["flight"], adults)
+            if booking:
+                link += f"\n    Book {best['airline']} {best['flight'][:2]} {best['flight'][2:]}: {booking}"
             cheapest = min(f["airlines"], key=f["airlines"].get)
             detail = f"{cheapest}{at(f['times'].get(cheapest, []))}"
             target = targets.get(key)
