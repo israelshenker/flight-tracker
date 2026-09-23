@@ -134,6 +134,25 @@ let rtBest = false, rtOut = "", rtBack = "";  // cheapest round trip card: its o
 let sortBest = false;  // false = order by the nonstop fare, true = by the cheapest of the three
 const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
+// Read the trip file straight from the newest saved version on GitHub, so a check's new fares
+// show up seconds after it saves (the published site takes a minute or two to rebuild). If
+// GitHub's API is unavailable (it allows 60 requests an hour per visitor), use the published copy.
+const REPO_RAW = "https://raw.githubusercontent.com/israelshenker/flight-tracker";
+const REPO_API = "https://api.github.com/repos/israelshenker/flight-tracker/commits/main";
+async function fetchTrip(id) {
+  const file = `docs/t/${encodeURIComponent(id)}.json`;
+  try {
+    const sha = (await (await fetch(REPO_API, {cache: "no-store", headers: {Accept: "application/vnd.github.sha"}})).text()).trim();
+    if (/^[0-9a-f]{40}$/.test(sha)) {
+      const res = await fetch(`${REPO_RAW}/${sha}/${file}`, {cache: "no-store"});
+      if (res.status === 404) return null;
+      if (res.ok) return await res.json();
+    }
+  } catch {}
+  const res = await fetch(`t/${encodeURIComponent(id)}.json?${Date.now()}`, {cache: "no-store"});
+  if (res.status === 404) return null;
+  return await res.json();
+}
 async function load() {
   // Short links: #<token>[.stop.<subscriber>]; the file id and key come from the token (same
   // derivation as index.html's newShare). Older links: #<file id>.<key>[.stop.<subscriber>].
@@ -153,9 +172,8 @@ async function load() {
   if (!id || !key) return fail("This link is incomplete. Ask for the link again.");
   let box;
   try {
-    const res = await fetch(`t/${encodeURIComponent(id)}.json?${Date.now()}`, {cache: "no-store"});
-    if (res.status === 404) return fail("This trip isn't shared anymore, or the link was replaced with a new one.");
-    box = await res.json();
+    box = await fetchTrip(id);
+    if (!box) return fail("This trip isn't shared anymore, or the link was replaced with a new one.");
   } catch { return fail("Couldn't load the trip. Check your connection and reload."); }
   try {
     const k = await crypto.subtle.importKey("raw", unb64url(key), "AES-GCM", false, ["decrypt"]);
