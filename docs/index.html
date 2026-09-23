@@ -852,6 +852,7 @@ function tripBestHtml() {
       <b style="margin-left:auto;font-size:18px">${plan ? `${money(plan.total)} total` : "—"}</b></div>
     ${leg(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? leg(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
     ${plan ? `<div class="small" style="margin-top:6px">${esc(planSummary(plan))}</div>` : ""}
+    ${plan?.back ? `<div class="small" style="margin-top:4px">Car for these dates: pick up ${esc(plan.out.to)} ${esc(niceDate(plan.out.dep))}, return ${esc(plan.back.from)} ${esc(niceDate(plan.back.dep))} · <a href="https://www.costcotravel.com/Rental-Cars" target="_blank" rel="noopener">check rates on Costco Travel ↗</a></div>` : ""}
     <div class="muted small" style="margin-top:4px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."} ${t.car?.day || Object.keys(t.car?.at || {}).length ? "Picks the dates with the lowest total, rental car included." : `No rental car cost set — add one in <button class="link small" data-open-trips="1">Trips…</button> to include it.`} Pick dates to price a specific trip.${[out, back].some(x => x?.bag) ? ` <span style="color:var(--up)">* bag fee not included in that fare.</span>` : ""}</div>
   </div>`;
 }
@@ -909,6 +910,7 @@ function renderTripList() {
     <div class="row" style="margin-bottom:6px">
       <label class="f">Rental car ($ per day) <input type="number" min="0" step="1" data-trip-car="day" data-i="${i}" value="${esc(t.car?.day ?? "")}" placeholder="e.g. 55"></label>
       <label class="f">Different rate at some airports <input type="text" data-trip-car="at" data-i="${i}" value="${esc(Object.entries(t.car?.at || {}).map(([k, v]) => `${k} ${v}`).join(", "))}" placeholder="e.g. MIA 45, FLL 60" maxlength="120"></label>
+      <a class="small" style="align-self:end" href="https://www.costcotravel.com/Rental-Cars" target="_blank" rel="noopener">Check rates on Costco Travel ↗</a>
       <label class="f">Extra to return it at another airport ($) <input type="number" min="0" step="1" data-trip-car="oneway" data-i="${i}" value="${esc(t.car?.oneway ?? "")}" placeholder="e.g. 50"></label>
       <span class="small muted" style="align-self:center">${counts[t.id] || 0} route/date${counts[t.id] === 1 ? "" : "s"}</span>
     </div>
