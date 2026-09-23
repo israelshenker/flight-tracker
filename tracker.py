@@ -738,7 +738,18 @@ def search(only_new=False):
 
     if cfg.get("skiplagged", True):
         hidden_search(cfg, latest, fares, errors, started, adults, stamp)
-        onestop_search(cfg, latest, fares, errors, started, adults, stamp)
+    onestop_search(cfg, latest, fares, errors, started, adults, stamp)  # has its own on/off switch
+
+    # Google's "bags unknown" mark on routes with no bags also covers airlines whose bags it can
+    # price (United, Breeze). Keep it only for airlines it actually failed to price on a route
+    # tracked with that bag, this run or before (remembered in state.json), e.g. Allegiant.
+    unpriced = set(state.get("unpriced_bag_airlines", [])) | {
+        a for f in fares.values() for a, what in (f.get("bagless") or {}).items() if what != "bag"}
+    for f in fares.values():
+        if f.get("bagless"):
+            f["bagless"] = {a: w for a, w in f["bagless"].items() if w != "bag" or a in unpriced}
+            if not f["bagless"]:
+                del f["bagless"]
 
     # ---- alerts: one line per route, only for what changed ----
     targets = {}
@@ -862,7 +873,7 @@ def search(only_new=False):
             failure_alert = True
 
     write_json(RESULTS, {
-        "stamp": stamp, "fares": fares, "price_email_day": price_email_day, "failure_alert": failure_alert, "health_alert": health_alert,
+        "stamp": stamp, "fares": fares, "price_email_day": price_email_day, "unpriced_bag_airlines": sorted(unpriced), "failure_alert": failure_alert, "health_alert": health_alert,
         "empty_streaks": empty_streaks,
         "alerts": alerts_out,
         "last_run": {"at": stamp, "searched": len(fares), "total": len(routes), "searches": attempted,
@@ -1197,6 +1208,8 @@ def merge():
         vault.write_text(CONFIG, json.dumps(cfg, indent=2) + "\n")
     write_trip_pages(cfg, latest)
 
+    if res.get("unpriced_bag_airlines"):
+        state["unpriced_bag_airlines"] = res["unpriced_bag_airlines"]
     if res.get("price_email_day"):
         state["price_email_day"] = res["price_email_day"]  # later price emails that day join its thread
     if res["failure_alert"]:
