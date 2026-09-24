@@ -1435,10 +1435,53 @@ function render() {
     const chipList = (list, label, stopAll, extra = () => "") => list.length ? `<div class="card none"><div class="group" style="margin:0 0 6px"><span class="muted small">${label} (${list.length})</span>${
       stopAll ? `<button class="link small" data-stop-none="${esc(g)}">Stop all ${list.length} with no nonstops</button>` : ""}</div><div class="nonelist">${
       list.map(w => `<span class="nonechip">${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(wKey(w))}"${selected.has(wKey(w)) ? " checked" : ""}>` : ""}${esc(w.origin)} → ${esc(w.dest)}${optTags(optsCode(w)).length ? ` <small>(${esc(optTags(optsCode(w)).join(", "))})</small>` : ""} <a href="${googleLink(w)}" target="_blank" rel="noopener" title="Open on Google Flights">↗</a> <a href="${skiplaggedLink(w)}" target="_blank" rel="noopener" title="Open on Skiplagged">S↗</a>${extra(w)}<button title="Edit bags, times, alert" aria-label="Edit ${esc(w.origin)} to ${esc(w.dest)}" data-edit="${esc(wKey(w))}">✎</button><button title="Stop tracking" aria-label="Stop tracking ${esc(w.origin)} to ${esc(w.dest)}" data-stop="${esc(wKey(w))}">×</button></span>`).join("")}</div></div>` : "";
+    // No Longer Available routes, opened (user: no way to see the history once a fare is gone):
+    // a card with the last fares, the price line and the full change log. Closed = a chip below.
+    for (const w of gone.filter(w => !selectMode && folded.openRoutes.has(wKey(w)))) {
+      const k = wKey(w), cur = latest[k], info = goneInfo(k, cur);
+      const fares = {}, lows = [], changes = [];
+      let lastAt = null, lastFares = {};
+      for (const r of routeLog(w, log)) {
+        if (r.marker) { for (const a in fares) delete fares[a]; changes.push(r); continue; }
+        if (r.airline && r.price != null) fares[r.airline] = r.price;
+        else if (r.airline) delete fares[r.airline];
+        else for (const a in fares) delete fares[a];
+        if (r.at !== lastAt) { lows.push(null); lastAt = r.at; }
+        const vals = Object.values(fares);
+        lows[lows.length - 1] = vals.length ? Math.min(...vals) : null;
+        if (vals.length) lastFares = {...fares};
+        changes.push(r);
+      }
+      const seen = lows.filter(p => p != null);
+      const airlines = Object.entries(lastFares).sort((a, b) => a[1] - b[1])
+        .map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td></tr>`).join("");
+      const tags = [...optTags(optsCode(w)), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
+        .map(t => `<span class="tag${t.startsWith("Trip: ") ? " trip" : ""}">${esc(t)}</span>`).join("");
+      const rows = changes.slice().reverse().map(r => r.marker
+        ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed${r.marker ? ` (was: ${esc(r.marker)})` : ""}</i></td></tr>`
+        : `<tr><td>${esc(when(r.at))}</td><td>${r.airline ? esc(r.airline) : "—"}</td><td class="num">${r.price != null ? "$" + r.price : r.airline ? "no longer offered" : "no nonstops"}</td></tr>`).join("");
+      const h = skipFare(cur, w);
+      html += `<article class="card">
+        <div class="top">
+          <div><div class="route"><button class="fold" data-fold="${esc(k)}" aria-expanded="true" title="Close">▾</button>${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</div>
+            ${tags ? `<div class="tags">${tags}</div>` : ""}
+            <div class="muted small">checked ${esc(ago(cur.checked_at))} · <a class="gf" href="${googleLink(w)}" target="_blank" rel="noopener">Google Flights: nonstop ↗</a> · <a class="gf" href="${skiplaggedLink(w)}" target="_blank" rel="noopener">Skiplagged ↗</a></div></div>
+          <div class="right"><div class="price" style="color:var(--up)">GONE</div><div class="muted small">${info.price != null ? `last $${esc(info.price)}` : ""}${info.at ? ` · until ${esc(when(info.at))}` : ""}</div></div>
+        </div>
+        <div class="muted small" style="margin-top:6px">No nonstop flights on the latest check. Still checked every hour; if they come back you'll get a NEW NONSTOP alert.</div>
+        ${h ? `<div class="skiprow"><span class="skip">Skiplagged</span> <b>$${h.price}</b> · ${esc(h.airline)} ${esc(timeLabel(h.departs))} · ticket to <b>${esc(CITY[h.final] ? `${CITY[h.final]} (${h.final})` : h.final)}</b> · <a href="${ticketLink(w, h)}" target="_blank" rel="noopener">see this ticket on Google Flights ↗</a></div>` : ""}
+        ${airlines ? `<div class="tablewrap"><table class="airlines"><thead><tr><th>Airline</th><th class="num">Last fare before it went</th></tr></thead><tbody>${airlines}</tbody></table></div>` : ""}
+        <div class="mid">${sparkline(lows)}<span class="muted small">${seen.length ? `Low $${Math.min(...seen)} · High $${Math.max(...seen)} while it had fares` : ""}</span>
+          <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="stop" data-edit="${esc(k)}">Edit bags, times, alert</button><button class="stop" data-stop="${esc(k)}">Stop tracking</button></span></div>
+        <details data-key="${esc(k)}" open><summary>Price history</summary><div class="tablewrap"><table>
+          <thead><tr><th>Changed (Eastern)</th><th>Airline</th><th class="num">New fare</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="3" class="muted">No changes saved.</td></tr>`}</tbody></table></div></details>
+      </article>`;
+    }
     html += chipList(pending, "Waiting for first check");
-    html += chipList(gone, "No Longer Available", false, w => {
+    html += chipList(gone.filter(w => selectMode || !folded.openRoutes.has(wKey(w))), "No Longer Available", false, w => {
       const i = goneInfo(wKey(w), latest[wKey(w)]);
-      return ` <small>${i.price != null ? `last $${esc(i.price)}` : ""}${i.at ? ` · until ${esc(when(i.at))}` : ""}</small>`;
+      return ` <small>${i.price != null ? `last $${esc(i.price)}` : ""}${i.at ? ` · until ${esc(when(i.at))}` : ""}</small>${selectMode ? "" : ` <button class="link small" data-fold="${esc(wKey(w))}" title="Show this route's fare history">history</button>`}`;
     });
     html += chipList(none, "No nonstop flights found (checked once a day)", true);
   }

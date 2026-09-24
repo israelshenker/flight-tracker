@@ -1006,6 +1006,24 @@ def log_trails(rows):
     return trails
 
 
+def last_fares(rows):
+    """Each route key's airline fares as they last stood while it still had nonstops, for the
+    "No Longer Available" detail on friend pages (the entry itself has no airlines by then)."""
+    fares, last = defaultdict(dict), {}
+    for row in rows:
+        k = key_of(row["origin"], row["destination"], row["depart"], row["return"], row["options"])
+        if not row["price"]:
+            if row["airline"]:
+                fares[k].pop(row["airline"], None)
+            else:
+                fares[k].clear()
+        else:
+            fares[k][row["airline"]] = int(float(row["price"]))
+        if fares[k]:
+            last[k] = dict(fares[k])
+    return last
+
+
 def watch_trail(w, trails):
     """A route's fare points under its current bags/times/passengers. Earlier settings aren't
     included: a settings change isn't a market move (user's choice), so moves restart there."""
@@ -1158,7 +1176,8 @@ def write_trip_pages(cfg, latest):
     TRIP_PAGES.mkdir(parents=True, exist_ok=True)
     keep = set()
     if trips:
-        trails = log_trails(read_log())
+        rows = read_log()
+        trails, lastf = log_trails(rows), last_fares(rows)
         for t in trips:
             snap = {"v": 1, "name": t.get("name", ""), "person": t.get("person", ""),
                     "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1167,6 +1186,9 @@ def write_trip_pages(cfg, latest):
                     "car": t.get("car"),  # rental car cost, for the round-trip total
                     "signup": cfg.get("signup_topic")}  # where the page's "Email me updates" form posts (see friends.py)
             snap["names"] = {c: AIRPORT_NAMES[c] for leg in snap["legs"] for c in (leg["o"], leg["d"]) if c in AIRPORT_NAMES}
+            for leg in snap["legs"]:  # gone fares: each airline's last fare before they went
+                if leg["price"] is None and lastf.get(leg["key"]):
+                    leg["last_airlines"] = lastf[leg["key"]]
             iv = os.urandom(12)
             box = {"v": 1, "iv": base64.b64encode(iv).decode(),
                    "data": base64.b64encode(AESGCM(trip_key(t)).encrypt(iv, json.dumps(snap).encode(), None)).decode()}
