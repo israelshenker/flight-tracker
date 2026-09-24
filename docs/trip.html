@@ -390,7 +390,8 @@ function roundTripHtml() {
     const kind = price === nsPrice ? "nonstop" : price === oneP ? "1 stop" : "skiplagged";
     const fl = (l.flights || []).filter(f => f.flight && f.airline === nsAir).sort((x, y) => x.price - y.price || x.departs.localeCompare(y.departs))[0];
     const opt = (l.key || "").split("|")[3] || "";  // route options: c1 carry-on, b2 checked bags
-    return {l, book: kind === "nonstop" ? l.link : kind === "1 stop" ? l.link1 : null, flight: kind === "nonstop" ? fl?.flight : null,
+    const departs = kind === "nonstop" ? fl?.departs || l.airline_times?.[nsAir]?.[0] : kind === "1 stop" ? l.onestop.departs : l.skip.departs;
+    return {l, departs, book: kind === "nonstop" ? l.link : kind === "1 stop" ? l.link1 : null, flight: kind === "nonstop" ? fl?.flight : null,
             carry: +(/(?:^|[^a-z])c(\d)/.exec(opt)?.[1] || 0), checked: +(/b(\d)/.exec(opt)?.[1] || 0), dep: l.dep, from: l.o, to: l.d, price, pax: l.pax || 1, kind,
             airline: kind === "1 stop" ? l.onestop.airline : kind === "skiplagged" ? l.skip.airline : nsAir, bag: kind === "nonstop" && l.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: l.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
@@ -411,7 +412,7 @@ function roundTripHtml() {
     : `<div class="small muted" style="margin-top:6px">Book the two flights separately (${out.kind !== "nonstop" || back.kind !== "nonstop" ? "not both nonstop" : out.flight?.slice(0, 2) !== back.flight?.slice(0, 2) ? "different airlines" : back.from !== out.to || back.to !== out.from ? "different airports" : "no flight numbers"}, so not one round-trip ticket).</div>`;
   const pick = (id, dates, val) => `<select id="${id}"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
   const row = (x, label, sel) => `<div class="rtleg"><span class="rtlabel">${label}</span>${sel}${x
-    ? `<button class="link" data-open="${trip.legs.indexOf(x.l)}"><b>${esc(x.l.o)} → ${esc(x.l.d)}</b></button><span class="muted small">${esc(niceDate(x.l.dep))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b class="rtprice" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>${x.book ? ` <a class="small" href="${esc(x.book)}" target="_blank" rel="noopener noreferrer">Book ↗</a>` : ""}`
+    ? `<button class="link" data-open="${trip.legs.indexOf(x.l)}"><b>${esc(x.l.o)} → ${esc(x.l.d)}</b></button><span class="muted small">${esc(niceDate(x.l.dep))}${x.departs ? ` · ${esc(timeLabel(x.departs))}` : ""}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b class="rtprice" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>${x.book ? ` <a class="small" href="${esc(x.book)}" target="_blank" rel="noopener noreferrer">Book ↗</a>` : ""}`
     : `<span class="muted small">no fare on that date</span>`}</div>`;
   return `<div class="card rt"><div class="rthead"><b>Cheapest ${backDates.length ? "round trip" : "flight"}</b>
       <span class="opts small"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}> Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}> Best price</label></span>

@@ -907,7 +907,8 @@ function tripBestHtml() {
     const fl = (cur.flights || []).filter(f => f.flight && f.airline === nsAir).sort((x, y) => x.price - y.price || x.departs.localeCompare(y.departs))[0];
     const book = kind === "nonstop" ? (fl && bookLink(w, fl.flight)) || googleLink(w) : kind === "1 stop" ? oneStopLink(w) : null;
     const po = parseOpts(optsCode(w));
-    return {w, book, flight: kind === "nonstop" ? fl?.flight : null, carry: po.carry_on, checked: po.checked, dep: w.depart, from: w.origin, to: w.dest, price, pax: parseOpts(optsCode(w)).adults || config.adults || 1, kind,
+    const departs = kind === "nonstop" ? fl?.departs || cur.times?.[nsAir]?.[0] : kind === "1 stop" ? one.departs : skip.departs;
+    return {w, book, departs, flight: kind === "nonstop" ? fl?.flight : null, carry: po.carry_on, checked: po.checked, dep: w.depart, from: w.origin, to: w.dest, price, pax: parseOpts(optsCode(w)).adults || config.adults || 1, kind,
             airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : nsAir, bag: kind === "nonstop" && cur.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: cur.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
   const apPick = codes => `<select id="rtAp" style="font-size:13px;padding:3px 6px" title="Only flights leaving from or going to this airport"><option value="">All airports</option>${codes.map(a => `<option value="${esc(a)}"${a === rtAp ? " selected" : ""}>${esc(a)}</option>`).join("")}</select>`;
@@ -928,7 +929,7 @@ function tripBestHtml() {
   const pick = (id, dates, val) => `<select id="${id}" style="font-size:13px;padding:3px 6px"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
   const leg = (x, label, sel) => `<div class="cline" style="gap:8px;flex-wrap:wrap;white-space:normal"><span class="tag">${label}</span>${sel}${x
     ? `<a href="#r=${encodeURIComponent(wKey(x.w))}" data-open-route="${esc(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
-      <span class="muted small">${esc(niceDate(x.w.depart))}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>${x.book ? ` <a class="small" href="${esc(x.book)}" target="_blank" rel="noopener noreferrer">Book ↗</a>` : ""}`
+      <span class="muted small">${esc(niceDate(x.w.depart))}${x.departs ? ` · ${esc(timeLabel(x.departs))}` : ""}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>${x.book ? ` <a class="small" href="${esc(x.book)}" target="_blank" rel="noopener noreferrer">Book ↗</a>` : ""}`
     : `<span class="muted small">no fare on that date</span>`}</div>`;
   return `<div class="card" style="border-color:var(--accent)">
     <div class="row" style="margin:0 0 6px;align-items:center"><b>Cheapest ${backDates.length ? "round trip" : "flight"} for ${esc(t.name)}</b>
