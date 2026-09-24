@@ -415,6 +415,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 
 let token = null;
 try { token = localStorage.getItem("ghToken"); } catch {}
+let archive = {}, archiveView = null;  // past travel dates (data/archive.json); archiveView: "list", a date, or null
 let alerts = [], alertView = null, backToAlert = null;  // saved push alerts; alertView: alert id, "list", or null
 let subscribers = {subs: {}};  // friends signed up for email updates on shared trips (friends.py)
 let config = {watches: []}, history = [], state = {}, latest = {}, lastRun = null, busy = false, loaded = false, lastLoad = 0;
@@ -534,7 +535,7 @@ async function loadAll() {
   vaultInfo = vi ? JSON.parse(vi) : null;
   await restoreVaultKey();
   if (vaultInfo && !vaultKey) throw Object.assign(new Error("locked"), {locked: true});
-  const [cf, hist, st, lt, al, sb] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json", "data/alerts.json", "data/subscribers.json"]
+  const [cf, hist, st, lt, al, sb, ar] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json", "data/alerts.json", "data/subscribers.json", "data/archive.json"]
     .map(async f => { const t = await raw(f); return t == null ? null : openText(t); }));
   config = cf ? JSON.parse(cf) : {watches: []};
   if (!Array.isArray(config.watches)) config.watches = [];
@@ -547,6 +548,7 @@ async function loadAll() {
   state = st ? JSON.parse(st) : {};
   alerts = al ? JSON.parse(al) : [];
   subscribers = sb ? JSON.parse(sb) : {subs: {}};
+  archive = ar ? JSON.parse(ar) : {};
   loaded = true;
 }
 
@@ -1314,7 +1316,7 @@ function render() {
       <select id="selKind"><option value="">Select by type…</option><option value="plain">No bags, any time</option><option value="bags">With bags</option><option value="times">With a time window</option><option value="alert">With a price alert</option><option value="none">No nonstop found</option><option value="skip">Has a cheaper skiplagged fare</option><option value="one">Has a cheaper 1-stop fare</option></select>
       <button class="link small" data-sel-clear="1">Clear</button></div>`;
   } else {
-    html = `<div class="toolbar">${backToAlert ? `<button class="link small" data-back-alert="1">‹ Back to alert</button>` : ""}<button class="link small" data-recent-alerts="1">Recent alerts</button><button class="link small" data-compare="1">${compareMode ? "List view" : "Calendar view"}</button><button class="link small" data-select-mode="1">Select routes</button>${compareMode ? "" : `<button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button>`}</div>${tripFilterHtml()}`;
+    html = `<div class="toolbar">${backToAlert ? `<button class="link small" data-back-alert="1">‹ Back to alert</button>` : ""}<button class="link small" data-recent-alerts="1">Recent alerts</button><button class="link small" data-archived="1">Archived</button><button class="link small" data-compare="1">${compareMode ? "List view" : "Calendar view"}</button><button class="link small" data-select-mode="1">Select routes</button>${compareMode ? "" : `<button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button>`}</div>${tripFilterHtml()}`;
   }
   for (const [g, ws] of groups) {
     const [dep, ret] = g.split("|");
@@ -1439,19 +1441,7 @@ function render() {
     // a card with the last fares, the price line and the full change log. Closed = a chip below.
     for (const w of gone.filter(w => !selectMode && folded.openRoutes.has(wKey(w)))) {
       const k = wKey(w), cur = latest[k], info = goneInfo(k, cur);
-      const fares = {}, lows = [], changes = [];
-      let lastAt = null, lastFares = {};
-      for (const r of routeLog(w, log)) {
-        if (r.marker) { for (const a in fares) delete fares[a]; changes.push(r); continue; }
-        if (r.airline && r.price != null) fares[r.airline] = r.price;
-        else if (r.airline) delete fares[r.airline];
-        else for (const a in fares) delete fares[a];
-        if (r.at !== lastAt) { lows.push(null); lastAt = r.at; }
-        const vals = Object.values(fares);
-        lows[lows.length - 1] = vals.length ? Math.min(...vals) : null;
-        if (vals.length) lastFares = {...fares};
-        changes.push(r);
-      }
+      const {lows, changes, lastFares} = replayLog(w, log);
       const seen = lows.filter(p => p != null);
       const airlines = Object.entries(lastFares).sort((a, b) => a[1] - b[1])
         .map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td></tr>`).join("");
@@ -1487,6 +1477,7 @@ function render() {
   }
   if (compareMode && !selectMode) html = html.slice(0, html.indexOf("</div>") + 6) + tripFilterHtml() + compareHtml(watches);
   if (alertView && !selectMode) { const end = html.indexOf("</div>") + 6; html = html.slice(0, end) + alertHtml() + html.slice(end); }
+  else if (archiveView && !selectMode) { const end = html.indexOf("</div>") + 6; html = html.slice(0, end) + archiveHtml(); }  // archive replaces the routes below
   $("list").innerHTML = html;
   topScrollbars();
   renderViewSwitch();
@@ -1530,7 +1521,7 @@ function renderViewSwitch() {
   b.textContent = compareMode ? "List view" : "Calendar view";
 }
 
-$("viewSwitch").onclick = () => { compareMode = !compareMode; alertView = null; render(); window.scrollTo({top: 0}); };
+$("viewSwitch").onclick = () => { compareMode = !compareMode; alertView = null; archiveView = null; render(); window.scrollTo({top: 0}); };
 
 // ---------- run status ----------
 async function refreshRun() {
@@ -2144,6 +2135,71 @@ async function save(action, msgEl) {
 // ---------- start ----------
 // ---------- saved push alerts ----------
 const alertWhen = at => new Date(at).toLocaleString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+// ---------- archived travel dates (data/archive.json, written by tracker.py archive_past_dates) ----------
+// After a travel date passes, its routes, last fares and change log are kept here instead of deleted.
+function archiveHtml() {
+  const dates = Object.keys(archive).sort().reverse();
+  if (archiveView === "list") {
+    return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Archived</h2><button class="link small" data-close-archive="1">Close</button></div>
+      <div class="small muted" style="margin:2px 0 8px">Past travel dates · newest first</div>${dates.length ? dates.map(d => `
+      <button class="alertrow" data-open-archive="${esc(d)}"><span><b>${esc(niceDate(d))}</b><span class="small muted" style="display:block">${archive[d].watches.length} route${archive[d].watches.length === 1 ? "" : "s"}${Object.values(archive[d].trips || {}).length ? " · " + esc(Object.values(archive[d].trips).join(", ")) : ""}</span></span>
+        <span class="small muted">›</span></button>`).join("") : `<p class="small muted">Nothing archived yet. Travel dates are archived here the day after they pass.</p>`}</div>`;
+  }
+  const a = archive[archiveView];
+  if (!a) return "";
+  const log = {};
+  for (const r of a.history || []) (log[keyOf(r[1], r[2], r[3], r[4], r[7] || "")] ||= []).push({at: r[0], o: r[1], d: r[2], dep: r[3], ret: r[4], price: r[5] ? Math.round(+r[5]) : null, airline: r[6], opts: r[7] || ""});
+  const cards = a.watches.map(w => ({w, e: a.latest[wKey(w)] || {}}))
+    .sort((x, y) => (x.e.price ?? x.e.last_price ?? 1e9) - (y.e.price ?? y.e.last_price ?? 1e9))
+    .map(({w, e}) => {
+      const {lows, changes, lastFares} = replayLog(w, log);
+      const seen = lows.filter(p => p != null);
+      const fares = Object.keys(e.airlines || {}).length ? e.airlines : lastFares;
+      const airlines = Object.entries(fares).sort((x, y) => x[1] - y[1])
+        .map(([n, p]) => `<tr><td>${esc(n)}</td><td class="num">$${p}</td><td class="times">${esc((e.times?.[n] || []).map(timeLabel).join(", "))}</td></tr>`).join("");
+      const tags = [...optTags(optsCode(w)), ...(w.trips || []).map(id => a.trips?.[id] ? "Trip: " + a.trips[id] : "").filter(Boolean)]
+        .map(t => `<span class="tag${t.startsWith("Trip: ") ? " trip" : ""}">${esc(t)}</span>`).join("");
+      const last = e.price ?? e.last_price;
+      return `<article class="card">
+        <div class="top">
+          <div><div class="route">${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</div>
+            ${tags ? `<div class="tags">${tags}</div>` : ""}
+            <div class="muted small">${e.checked_at ? `last checked ${esc(when(e.checked_at))}` : "never checked"}</div></div>
+          <div class="right">${e.price != null ? `<div class="price">$${e.price}</div><div class="muted small">last fare · ${esc(e.airline || "")}</div>`
+            : last != null ? `<div class="price" style="color:var(--up)">GONE</div><div class="muted small">last $${esc(last)}${e.last_seen_at ? ` · until ${esc(when(e.last_seen_at))}` : ""}</div>`
+            : `<div class="price muted">N/A</div><div class="muted small">no nonstops found</div>`}</div>
+        </div>
+        ${airlines ? `<div class="tablewrap"><table class="airlines"><thead><tr><th>Airline</th><th class="num">${e.price != null ? "Last fare" : "Last fare before it went"}</th><th>Departs at that fare</th></tr></thead><tbody>${airlines}</tbody></table></div>` : ""}
+        ${seen.length ? `<div class="mid">${sparkline(lows)}<span class="muted small">Low $${Math.min(...seen)} · High $${Math.max(...seen)}</span></div>` : ""}
+        <details open><summary>Price history</summary><div class="tablewrap"><table>
+          <thead><tr><th>Changed (Eastern)</th><th>Airline</th><th class="num">New fare</th></tr></thead>
+          <tbody>${historyRows(changes) || `<tr><td colspan="3" class="muted">No changes saved.</td></tr>`}</tbody></table></div></details>
+      </article>`;
+    }).join("");
+  return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Archived · ${esc(niceDate(archiveView))}</h2><span style="display:flex;gap:12px"><button class="link small" data-archived="1">‹ All archived dates</button><button class="link small" data-close-archive="1">Close</button></span></div>
+    <div class="small muted" style="margin:2px 0 8px">${a.watches.length} route${a.watches.length === 1 ? "" : "s"} · archived ${esc(when(a.archived_at))} · cheapest last fare first</div></div>${cards}`;
+}
+// Replay a route's change log: its lowest fare over time, the rows for the history table, and
+// each airline's fare as it last stood while the route still had fares.
+function replayLog(w, log) {
+  const fares = {}, lows = [], changes = [];
+  let lastAt = null, lastFares = {};
+  for (const r of routeLog(w, log)) {
+    if (r.marker) { for (const a in fares) delete fares[a]; changes.push(r); continue; }
+    if (r.airline && r.price != null) fares[r.airline] = r.price;
+    else if (r.airline) delete fares[r.airline];
+    else for (const a in fares) delete fares[a];
+    if (r.at !== lastAt) { lows.push(null); lastAt = r.at; }
+    const vals = Object.values(fares);
+    lows[lows.length - 1] = vals.length ? Math.min(...vals) : null;
+    if (vals.length) lastFares = {...fares};
+    changes.push(r);
+  }
+  return {lows, changes, lastFares};
+}
+const historyRows = changes => changes.slice().reverse().map(r => r.marker
+  ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed${r.marker ? ` (was: ${esc(r.marker)})` : ""}</i></td></tr>`
+  : `<tr><td>${esc(when(r.at))}</td><td>${r.airline ? esc(r.airline) : "—"}</td><td class="num">${r.price != null ? "$" + r.price : r.airline ? "no longer offered" : "no nonstops"}</td></tr>`).join("");
 function alertHtml() {
   if (alertView === "list") {
     return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Recent alerts</h2><button class="link small" data-close-alert="1">Close</button></div>
@@ -2184,7 +2240,10 @@ let alertScroll = 0;
 document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b || b.disabled) return;
-  if (b.dataset.recentAlerts) { alertView = "list"; backToAlert = null; render(); window.scrollTo({top: 0}); }
+  if (b.dataset.recentAlerts) { alertView = "list"; archiveView = null; backToAlert = null; render(); window.scrollTo({top: 0}); }
+  else if (b.dataset.archived) { archiveView = "list"; alertView = null; backToAlert = null; render(); window.scrollTo({top: 0}); }
+  else if (b.dataset.openArchive) { archiveView = b.dataset.openArchive; render(); window.scrollTo({top: 0}); }
+  else if (b.dataset.closeArchive) { archiveView = null; render(); }
   else if (b.dataset.openAlert) { alertView = b.dataset.openAlert; render(); window.scrollTo({top: 0}); }
   else if (b.dataset.closeAlert) { alertView = null; backToAlert = null; render(); }
   else if (b.dataset.alertRoute) { alertScroll = window.scrollY; backToAlert = alertView; alertView = null; openRoute(b.dataset.alertRoute); }

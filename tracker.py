@@ -35,6 +35,7 @@ DATA = HERE / "data"
 LATEST = DATA / "latest.json"    # current fares: key -> {checked_at, price, airline, airlines, times}
 HISTORY = DATA / "history.csv"   # change log: a row whenever an airline's fare on a route changes
 STATE = DATA / "state.json"
+ARCHIVE = DATA / "archive.json"  # past travel dates: their routes, last fares and change log (page's "Archived")
 ALERTS = DATA / "alerts.json"    # the last ALERTS_KEPT push alerts, shown by the page's Alert panel
 ALERTS_KEPT = 50
 RESULTS = HERE / "run_results.json"
@@ -650,12 +651,21 @@ def route_link(key):
     return f"{PAGE_URL}#r={urllib.parse.quote(key, safe='')}"
 
 
-def search(only_new=False):
-    """Search fares, send alerts, and write this run's results to RESULTS."""
+def search(only_new=False, travel_day=False):
+    """Search fares, send alerts, and write this run's results to RESULTS.
+    travel_day: the 15-minute check of routes departing today (Eastern), user's request:
+    seats can open up during the day. Everything else stays on the hourly check."""
     if not CONFIG.exists():
         print("No config.json yet. Add flights on the web page first.")
         return 0
     cfg = read_json(CONFIG, {})
+    if travel_day:
+        today = local_today().isoformat()
+        recent = datetime.now(timezone.utc) - TRAVEL_DAY_SKIP_IF_CHECKED
+        cfg = {**cfg, "watches": [w for w in cfg.get("watches", []) if w["depart"] == today]}
+        if not cfg["watches"]:
+            print("No routes departing today.")
+            return 0
     latest = read_json(LATEST, {})
     state = read_json(STATE, {})
     adults = cfg.get("adults", 1)
@@ -666,7 +676,7 @@ def search(only_new=False):
     health_alert = False
     alerts_out = []
     last_full = (state.get("last_run") or {}).get("at")
-    if not only_new and last_full and now - datetime.fromisoformat(last_full) > HEALTH_STALE:
+    if not only_new and not travel_day and last_full and now - datetime.fromisoformat(last_full) > HEALTH_STALE:
         last_alert = state.get("last_health_alert")
         if not last_alert or now - datetime.fromisoformat(last_alert) >= HEALTH_ALERT_EVERY:
             hours = (now - datetime.fromisoformat(last_full)).total_seconds() / 3600
@@ -680,6 +690,14 @@ def search(only_new=False):
     routes = build_searches(cfg)
     if only_new:
         todo = [r for r in routes if key_of(*r) not in latest]
+    elif travel_day:
+        # Every route departing today, including ones with no nonstops; skip any the hourly
+        # check just looked at.
+        todo = [r for r in routes if not (latest.get(key_of(*r)) or {}).get("checked_at")
+                or datetime.fromisoformat(latest[key_of(*r)]["checked_at"]) < recent]
+        if not todo:
+            print("Today's routes were just checked.")
+            return 0
     else:
         # Routes with no nonstop flights only need a daily look.
         todo = [r for r in routes if not dead_recently(latest.get(key_of(*r)), now)]
@@ -697,7 +715,8 @@ def search(only_new=False):
     searches.sort(key=lambda s: min((latest.get(key_of(*r)) or {}).get("checked_at", "") for r in s[7]))
     print(f"{len(todo)} of {len(routes)} route/dates in {len(searches)} searches"
           f"{f' (plus {len(extras)} one-way legs for round trips)' if extras else ''}"
-          f"{f'; {len(routes) - len(todo)} with no nonstops wait for their daily check' if not only_new and len(todo) < len(routes) else ''}")
+          f"{f'; {len(routes) - len(todo)} with no nonstops wait for their daily check' if not only_new and not travel_day and len(todo) < len(routes) else ''}"
+          f"{f'; {len(routes) - len(todo)} just checked by the hourly run' if travel_day and len(todo) < len(routes) else ''}")
 
     started = time.monotonic()
     fares, errors, done, empty_streaks = {}, [], 0, {}
@@ -924,10 +943,14 @@ def search(only_new=False):
         "last_run": {"at": stamp, "searched": len(fares), "total": len(routes), "searches": attempted,
                      # Routes with no nonstop flights are only looked at once a day; the page says so
                      # instead of making it look like they were skipped for lack of time.
-                     "daily": len(routes) - len(todo), "errors": errors[:20], "only_new": only_new},
+                     "daily": len(routes) - len(todo), "errors": errors[:20],
+                     "only_new": only_new or travel_day},  # travel-day checks don't replace the hourly summary
     })
     print(f"{len(lines)} alert lines ({dict(counts)}), {len(errors)} errors")
     return 0
+
+
+TRAVEL_DAY_SKIP_IF_CHECKED = timedelta(minutes=10)
 
 
 def dead_recently(entry_, now):
@@ -1201,6 +1224,46 @@ def write_trip_pages(cfg, latest):
     print(f"  trip pages: {len(keep)} shared")
 
 
+def archive_past_dates(cfg, latest):
+    """Before a passed travel date is dropped, keep its routes in ARCHIVE (user: "a way to find
+    the archived tracking info"): each route's settings, its last saved state and the change-log
+    rows for that date. Kept until deleted by hand."""
+    today = local_today().isoformat()
+    text = vault.read_text(HISTORY)
+    rows = list(csv.reader(io.StringIO(text)))[1:] if text else []
+    past = defaultdict(lambda: {"watches": {}, "latest": {}, "history": []})
+    for w in cfg.get("watches", []):
+        if w["depart"] < today:
+            past[w["depart"]]["watches"][key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))] = w
+    for k, e in latest.items():
+        if split_key(k)[2] < today:
+            past[split_key(k)[2]]["latest"][k] = e
+    for r in rows:
+        if len(r) > 3 and r[3] < today:
+            past[r[3]]["history"].append(r)
+    if not past:
+        return
+    archive = read_json(ARCHIVE, {})
+    names = {t["id"]: t.get("name", "") for t in cfg.get("trips", [])}
+    for date, p in past.items():
+        # Routes no longer in config (stopped, or dropped by the page) still get a card.
+        for k in p["latest"]:
+            if k not in p["watches"]:
+                o, d, dep, ret, opts = split_key(k)
+                opt = parse_options(opts)
+                p["watches"][k] = {"origin": o, "dest": d, "depart": dep, "return": ret,
+                                   **{f: v for f, v in opt.items() if v and not (f == "time_to" and v == 24)}}
+        a = archive.setdefault(date, {"watches": [], "latest": {}, "history": [], "trips": {}})
+        have = {key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)) for w in a["watches"]}
+        a["watches"] += [w for k, w in p["watches"].items() if k not in have]
+        a["latest"].update(p["latest"])
+        a["history"] += [r for r in p["history"] if r not in a["history"]]
+        a["trips"].update({i: names[i] for w in a["watches"] for i in w.get("trips", []) if i in names})
+        a["archived_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        print(f"  archived {date}: {len(a['watches'])} routes, {len(a['history'])} log rows")
+    write_json(ARCHIVE, archive)
+
+
 def drop_past_dates(cfg):
     """Remove flights whose departure date has passed (Eastern time) from config.json and
     their rows from history.csv, so neither keeps growing. Git history still has them."""
@@ -1258,6 +1321,7 @@ def merge():
         if key in latest and latest[key].get("checked_at", "") <= stamp:
             latest[key]["empty_streak"] = streak  # entry() above starts every new result at 0
 
+    archive_past_dates(cfg, latest)  # before past dates leave latest, config and the change log
     # Forget routes/dates no longer tracked (stopped on the web page, or in the past).
     wanted = {key_of(*r) for r in build_searches(cfg)}
     latest = {k: v for k, v in latest.items() if k in wanted}
@@ -1300,7 +1364,7 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     only_new = "--new" in sys.argv
     if cmd == "search":
-        sys.exit(search(only_new))
+        sys.exit(search(only_new, travel_day="--today" in sys.argv))
     if cmd == "merge":
         sys.exit(merge())
     if cmd == "failed":
