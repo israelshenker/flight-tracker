@@ -3,6 +3,7 @@ name: Check flight prices
 on:
   schedule:
     - cron: "17 * * * *"   # every hour (GitHub may start it a bit late)
+    - cron: "2,32,47 * * * *"  # with :17, every 15 minutes: routes departing today only (tracker.py search --today)
   push:                     # a change on the web page: check new flights right away
     branches: [main]
     paths: [config.json]
@@ -19,8 +20,9 @@ permissions:
 # Full checks (hourly and "Check now") share one lane and wait for each other, so two
 # never run at once and send the same alert twice. Web-page changes (which only check
 # never-checked flights) get their own lane; a newer change replaces an older one.
+# Travel-day checks (every 15 minutes) have a lane of their own too.
 concurrency:
-  group: check-prices-${{ github.event_name == 'push' && 'new' || 'full' }}
+  group: check-prices-${{ github.event_name == 'push' && 'new' || github.event.schedule == '2,32,47 * * * *' && 'today' || 'full' }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
@@ -49,6 +51,8 @@ jobs:
             python notify.py
           elif [ "${{ github.event_name }}" = "push" ]; then
             python tracker.py search --new
+          elif [ "${{ github.event.schedule }}" = "2,32,47 * * * *" ]; then
+            python tracker.py search --today
           else
             python tracker.py search
           fi
@@ -78,7 +82,7 @@ jobs:
       # Email updates for friends and family who signed up on a shared trip's page (friends.py).
       # Not on the quick "new flights" runs, which can overlap an hourly run and double-send.
       - name: Friend emails
-        if: success() && github.event_name != 'push'
+        if: success() && github.event_name != 'push' && github.event.schedule != '2,32,47 * * * *'
         continue-on-error: true  # a problem here shouldn't be reported as a failed price check
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
