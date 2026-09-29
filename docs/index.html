@@ -133,6 +133,12 @@ table.grid td.best a{text-decoration:underline;text-decoration-color:var(--down)
 input.sel{width:16px;height:16px;margin:0 6px 0 0;flex:none;cursor:pointer;accent-color:var(--accent)}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:flex-end;margin:4px 0 0}
 .toolbar select{font-size:13px;padding:3px 6px}
+.msel{position:relative;display:inline-block}
+.msel>summary{list-style:none;cursor:pointer;font-size:13px;padding:3px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);white-space:nowrap}
+.msel>summary::-webkit-details-marker{display:none}
+.msel>summary::after{content:" ▾";color:var(--muted)}
+.mselbox{position:absolute;z-index:30;top:calc(100% + 4px);left:0;min-width:210px;max-height:280px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px;box-shadow:0 6px 20px rgba(0,0,0,.15)}
+.mselbox label{display:flex;gap:8px;align-items:center;padding:4px 4px;font-size:14px;white-space:nowrap;cursor:pointer}
 button.fold{border:0;background:none;color:var(--muted);padding:0 6px 0 0;font-size:14px;line-height:1;cursor:pointer}
 .card.compact{padding:9px 16px}
 .card.compact .top{align-items:center}
@@ -721,7 +727,22 @@ function tracked() {
 
 let selectMode = false, compareMode = true;  // compareMode = calendar view (the default)
 let sortDate = null;  // calendar: date whose fares order the rows (null = cheapest route first)
-let airportFilter = "";  // calendar: show only routes leaving from or going to this airport ("" = all)
+let airportFilter = [];  // calendar: only routes leaving from or going to these airports ([] = all)
+// Checkbox dropdown for several airports (user: pick more than one). picked = [] means all.
+// It stays open while boxes are ticked (the page redraws) and closes on a tap outside.
+let openMsel = null;
+function mselHtml(id, codes, picked, names = {}) {
+  const label = !picked.length ? "All airports" : picked.length <= 2 ? picked.join(", ") : `${picked.length} airports`;
+  return `<details class="msel" data-msel="${id}"${openMsel === id ? " open" : ""}><summary title="Only routes leaving from or going to the ticked airports">${esc(label)}</summary><div class="mselbox">
+    <label><input type="checkbox" data-msel-all="${id}"${picked.length ? "" : " checked"}> All airports</label>
+    ${codes.map(c => `<label><input type="checkbox" data-msel-pick="${id}" value="${esc(c)}"${picked.includes(c) ? " checked" : ""}> <b>${esc(c)}</b>${names[c] ? ` <span class="muted small">${esc(names[c])}</span>` : ""}</label>`).join("")}</div></details>`;
+}
+const mselToggle = (list, code, on) => on ? [...new Set([...list, code])] : list.filter(c => c !== code);
+document.addEventListener("click", e => {
+  const s = e.target.closest(".msel > summary");
+  if (s) { const d = s.parentElement; openMsel = d.open ? null : d.dataset.msel; return; }
+  if (openMsel && !e.target.closest(".msel")) { openMsel = null; document.querySelectorAll("details.msel[open]").forEach(d => { d.open = false; }); }
+});
 let tripFilter = "", dirFilter = "";  // "" = all trips; "none" = routes in no trip; else a trip id. dirFilter: "", "going", "back"
 let sortBest = false;  // calendar: sort by best price (skiplagged when cheaper) instead of nonstop; resets on load
 // "Compare dates": one row per route, one column per date, cheapest tracked nonstop in each cell.
@@ -748,8 +769,8 @@ function compareHtml(watches) {
   }
   if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
   const airports = [...new Set([...rows.keys()].flatMap(k => k.split("-")))].sort();
-  const filterBy = airports.includes(airportFilter) ? airportFilter : "";
-  if (filterBy) for (const k of [...rows.keys()]) if (!k.split("-").includes(filterBy)) rows.delete(k);
+  airportFilter = airportFilter.filter(a => airports.includes(a));
+  if (airportFilter.length) for (const k of [...rows.keys()]) if (!k.split("-").some(a => airportFilter.includes(a))) rows.delete(k);
   const fromFL = k => FLORIDA_AIRPORTS.has(k.split("-")[0]), toFL = k => FLORIDA_AIRPORTS.has(k.split("-")[1]);
   const tables = [["From Florida", [...rows].filter(([k]) => fromFL(k))],
                   ["To Florida", [...rows].filter(([k]) => !fromFL(k) && toFL(k))],
@@ -759,8 +780,8 @@ function compareHtml(watches) {
       <label><input type="radio" name="sortby" value="nonstop"${sortBest ? "" : " checked"}>Nonstop</label>
       <label><input type="radio" name="sortby" value="best"${sortBest ? " checked" : ""}>Best price</label>
     </div></div>
-    <div class="row" style="align-items:center;margin:10px 0 0"><label class="small muted" for="airportFilter">Airport</label>
-      <select id="airportFilter"><option value="">All airports</option>${airports.map(a => `<option value="${esc(a)}"${a === filterBy ? " selected" : ""}>${esc(a)}</option>`).join("")}</select></div>`;
+    <div class="row" style="align-items:center;margin:10px 0 0"><span class="small muted">Airports</span>
+      ${mselHtml("airportFilter", airports, airportFilter, CITY)}</div>`;
   for (const [title, list] of tables) {
     if (!list.length) continue;
     const dates = [...new Set(list.flatMap(([, r]) => Object.keys(r)))].sort();
@@ -880,7 +901,7 @@ function planSummary(p) {
 // With a trip picked: the cheapest round trip, flights for everyone plus the rental car, with
 // its own Nonstop / Best price switch and optional fixed dates.
 let rtBest = false, rtOut = "", rtBack = "";  // resets on load; "" date = cheapest date
-let rtAirport = "", rtNoBag = false, rtAp = "";  // rtAp: the box's own airport filter ("" = all)  // "" any, "same" = same airports both ways, or one home airport; skip unpriced-bag airlines
+let rtAirport = "", rtNoBag = false, rtAp = [];  // rtAp: the box's own airport filter ([] = all)  // "" any, "same" = same airports both ways, or one home airport; skip unpriced-bag airlines
 function tripBestHtml() {
   const t = tripsOf().find(x => x.id === tripFilter);
   if (!t) return "";
@@ -895,8 +916,8 @@ function tripBestHtml() {
   const unpriced = [...new Set(Object.values(latest).flatMap(e => Object.keys(e?.bagless || {})))].sort();
   const skipAir = a => rtNoBag && unpriced.includes(a);
   const codes = [...new Set(legs.flatMap(w => [w.origin, w.dest]))].sort();
-  if (!codes.includes(rtAp)) rtAp = "";
-  const cands = (g, day) => side(g).filter(w => (!day || w.depart === day) && (!rtAp || w.origin === rtAp || w.dest === rtAp)).map(w => {
+  rtAp = rtAp.filter(a => codes.includes(a));
+  const cands = (g, day) => side(g).filter(w => (!day || w.depart === day) && (!rtAp.length || rtAp.includes(w.origin) || rtAp.includes(w.dest))).map(w => {
     const cur = latest[wKey(w)];
     if (!cur || cur.price == null) return null;
     // Nonstop: the cheapest airline that isn't skipped.
@@ -913,7 +934,7 @@ function tripBestHtml() {
     return {w, book, departs, flight: kind === "nonstop" ? fl?.flight : null, carry: po.carry_on, checked: po.checked, dep: w.depart, from: w.origin, to: w.dest, price, pax: parseOpts(optsCode(w)).adults || config.adults || 1, kind,
             airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : nsAir, bag: kind === "nonstop" && cur.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: cur.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
-  const apPick = codes => `<select id="rtAp" style="font-size:13px;padding:3px 6px" title="Only flights leaving from or going to this airport"><option value="">All airports</option>${codes.map(a => `<option value="${esc(a)}"${a === rtAp ? " selected" : ""}>${esc(a)}</option>`).join("")}</select>`;
+  const apPick = codes => mselHtml("rtAp", codes, rtAp, CITY);
   const airportPick = () => `<select id="rtAirport" style="font-size:13px;padding:3px 6px" title="Which airports the round trip may use">${[["", "No airport preference"], ["same", "Same airports both ways"], ["dep", "Same departure airport"], ["dest", "Same destination airport"]].map(([v, t]) => `<option value="${v}"${rtAirport === v ? " selected" : ""}>${t}</option>`).join("")}</select>`;
   const bagPick = names => names.length ? `<label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="rtNoBag"${rtNoBag ? " checked" : ""}> Skip airlines Google can't price bags for (${esc(names.join(", "))})</label>` : "";
   // Same airports both ways: Coming back goes from where Going landed, back to where it left.
@@ -1835,11 +1856,15 @@ for (const [f, t] of [["bulkFrom", "bulkTo"]]) {
 }
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.id === "airportFilter") { airportFilter = t.value; render(); return; }
+  if (t.dataset.mselAll || t.dataset.mselPick) {  // airport checkbox dropdowns
+    const id = t.dataset.mselAll || t.dataset.mselPick;
+    const next = t.dataset.mselAll ? [] : mselToggle(id === "rtAp" ? rtAp : airportFilter, t.value, t.checked);
+    if (id === "rtAp") rtAp = next; else airportFilter = next;
+    render(); return;
+  }
   if (t.id === "tripFilter") { tripFilter = t.value; dirFilter = ""; rtOut = rtBack = ""; render(); return; }
   if (t.name === "rtmode") { rtBest = t.value === "best"; render(); return; }
   if (t.id === "rtAirport") { rtAirport = t.value; render(); return; }
-  if (t.id === "rtAp") { rtAp = t.value; render(); return; }
   if (t.id === "rtNoBag") { rtNoBag = t.checked; render(); return; }
   if (t.id === "rtOut") { rtOut = t.value; render(); return; }
   if (t.id === "rtBack") { rtBack = t.value; render(); return; }

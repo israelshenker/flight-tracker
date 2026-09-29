@@ -64,6 +64,12 @@ td.times{color:var(--muted);font-size:13px}
 .rtleg{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
 .rtlabel{font-size:12px;border-radius:999px;padding:1px 8px;background:var(--soft);color:var(--accent)}
 .rtprice{margin-left:auto}
+.msel{position:relative;display:inline-block}
+.msel>summary{list-style:none;cursor:pointer;font-size:13px;padding:3px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);white-space:nowrap}
+.msel>summary::-webkit-details-marker{display:none}
+.msel>summary::after{content:" ▾";color:var(--muted)}
+.mselbox{position:absolute;z-index:30;top:calc(100% + 4px);left:0;min-width:210px;max-height:280px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px;box-shadow:0 6px 20px rgba(0,0,0,.15)}
+.mselbox label{display:flex;gap:8px;align-items:center;padding:4px 4px;font-size:14px;white-space:nowrap;cursor:pointer}
 .rt select{font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
 .skipnote{margin-top:10px;font-size:14px;line-height:1.6}
 .bagnote{margin-top:10px;font-size:13px;color:var(--up)}
@@ -131,8 +137,23 @@ const moveClass = leg => { const m = day(leg); return !m || m.base == null || m.
 const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== leg.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
 
 let rtBest = false, rtOut = "", rtBack = "";
-let rtAirport = "", rtNoBag = false, rtAp = "";  // rtAp: the box's own airport filter ("" = all)  // "" any, "same" both ways, "dep" same departure, "dest" same destination; skip unpriced-bag airlines
-let airportFilter = "";  // fare tables: only routes leaving from or going to this airport ("" = all), like the main page's calendar  // cheapest round trip card: its own switch and dates
+let rtAirport = "", rtNoBag = false, rtAp = [];  // rtAp: the box's own airport filter ([] = all)  // "" any, "same" both ways, "dep" same departure, "dest" same destination; skip unpriced-bag airlines
+let airportFilter = [];  // fare tables: only routes leaving from or going to these airports ([] = all), like the main page's calendar
+// Checkbox dropdown for several airports (user: pick more than one). picked = [] means all.
+// It stays open while boxes are ticked (the page redraws) and closes on a tap outside.
+let openMsel = null;
+function mselHtml(id, codes, picked, names = {}) {
+  const label = !picked.length ? "All airports" : picked.length <= 2 ? picked.join(", ") : `${picked.length} airports`;
+  return `<details class="msel" data-msel="${id}"${openMsel === id ? " open" : ""}><summary title="Only routes leaving from or going to the ticked airports">${esc(label)}</summary><div class="mselbox">
+    <label><input type="checkbox" data-msel-all="${id}"${picked.length ? "" : " checked"}> All airports</label>
+    ${codes.map(c => `<label><input type="checkbox" data-msel-pick="${id}" value="${esc(c)}"${picked.includes(c) ? " checked" : ""}> <b>${esc(c)}</b>${names[c] ? ` <span class="muted small">${esc(names[c])}</span>` : ""}</label>`).join("")}</div></details>`;
+}
+const mselToggle = (list, code, on) => on ? [...new Set([...list, code])] : list.filter(c => c !== code);
+document.addEventListener("click", e => {
+  const s = e.target.closest(".msel > summary");
+  if (s) { const d = s.parentElement; openMsel = d.open ? null : d.dataset.msel; return; }
+  if (openMsel && !e.target.closest(".msel")) { openMsel = null; document.querySelectorAll("details.msel[open]").forEach(d => { d.open = false; }); }
+});  // cheapest round trip card: its own switch and dates
 let sortBest = false;  // false = order by the nonstop fare, true = by the cheapest of the three
 const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
@@ -382,8 +403,8 @@ function roundTripHtml() {
   const unpriced = [...new Set(trip.legs.flatMap(l => Object.keys(l.bagless || {})))].sort();
   const skipAir = a => rtNoBag && unpriced.includes(a);
   const codes = [...new Set(one.flatMap(l => [l.o, l.d]))].sort();
-  if (!codes.includes(rtAp)) rtAp = "";
-  const cands = (g, day) => side(g).filter(l => l.price != null && (!day || l.dep === day) && (!rtAp || l.o === rtAp || l.d === rtAp)).map(l => {
+  rtAp = rtAp.filter(a => codes.includes(a));
+  const cands = (g, day) => side(g).filter(l => l.price != null && (!day || l.dep === day) && (!rtAp.length || rtAp.includes(l.o) || rtAp.includes(l.d))).map(l => {
     const [nsAir, nsPrice] = Object.entries(l.airlines || {}).filter(([a]) => !skipAir(a)).sort((x, y) => x[1] - y[1])[0] || [null, Infinity];
     const oneP = l.onestop && !skipAir(l.onestop.airline) ? l.onestop.price : Infinity, skipP = l.skip && !skipAir(l.skip.airline) ? l.skip.price : Infinity;
     const price = rtBest ? Math.min(nsPrice, oneP, skipP) : nsPrice;
@@ -396,7 +417,7 @@ function roundTripHtml() {
             carry: +(/(?:^|[^a-z])c(\d)/.exec(opt)?.[1] || 0), checked: +(/b(\d)/.exec(opt)?.[1] || 0), dep: l.dep, from: l.o, to: l.d, price, pax: l.pax || 1, kind,
             airline: kind === "1 stop" ? l.onestop.airline : kind === "skiplagged" ? l.skip.airline : nsAir, bag: kind === "nonstop" && l.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: l.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
-  const apPick = codes => `<select id="rtAp" style="font-size:13px;padding:3px 6px" title="Only flights leaving from or going to this airport"><option value="">All airports</option>${codes.map(a => `<option value="${esc(a)}"${a === rtAp ? " selected" : ""}>${esc(a)}</option>`).join("")}</select>`;
+  const apPick = codes => mselHtml("rtAp", codes, rtAp, trip.names || {});
   const airportPick = () => `<select id="rtAirport" style="font-size:13px;padding:3px 6px" title="Which airports the round trip may use">${[["", "No airport preference"], ["same", "Same airports both ways"], ["dep", "Same departure airport"], ["dest", "Same destination airport"]].map(([v, t]) => `<option value="${v}"${rtAirport === v ? " selected" : ""}>${t}</option>`).join("")}</select>`;
   const bagPick = names => names.length ? `<label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="rtNoBag"${rtNoBag ? " checked" : ""}> Skip airlines Google can't price bags for (${esc(names.join(", "))})</label>` : "";
   // Same airports both ways: Coming back goes from where Going landed, back to where it left.
@@ -426,8 +447,8 @@ function roundTripHtml() {
 }
 function render() {
   const airports = [...new Set(trip.legs.flatMap(l => [l.o, l.d]))].sort();
-  if (!airports.includes(airportFilter)) airportFilter = "";
-  const shown = trip.legs.filter(l => !airportFilter || l.o === airportFilter || l.d === airportFilter);
+  airportFilter = airportFilter.filter(a => airports.includes(a));
+  const shown = trip.legs.filter(l => !airportFilter.length || airportFilter.includes(l.o) || airportFilter.includes(l.d));
   const going = shown.filter(l => l.going), back = shown.filter(l => !l.going);
   const pick = open != null && trip.legs[open];
   $("app").innerHTML = `<h1>${esc(trip.name || "Trip")}</h1>
@@ -437,8 +458,7 @@ function render() {
     ${trip.legs.some(l => l.skip || l.onestop) ? `<div class="opts" style="margin-top:10px"><span class="small muted">Sort by</span>
       <label class="small"><input type="radio" name="sortby" value="nonstop"${sortBest ? "" : " checked"}> Nonstop</label>
       <label class="small"><input type="radio" name="sortby" value="best"${sortBest ? " checked" : ""}> Best price</label></div>` : ""}
-    ${airports.length > 2 ? `<div class="opts" style="margin-top:10px"><label class="small muted" for="airportFilter">Airport</label>
-      <select id="airportFilter"><option value="">All airports</option>${airports.map(a => `<option value="${esc(a)}"${a === airportFilter ? " selected" : ""}>${esc(a)}${trip.names?.[a] ? ` · ${esc(trip.names[a])}` : ""}</option>`).join("")}</select></div>` : ""}
+    ${airports.length > 2 ? `<div class="opts" style="margin-top:10px"><span class="small muted">Airports</span> ${mselHtml("airportFilter", airports, airportFilter, trip.names || {})}</div>` : ""}
     ${signupHtml()}
     ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
@@ -478,12 +498,16 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("change", e => {
-  if (e.target.id === "airportFilter") { airportFilter = e.target.value; open = null; render(); return; }
-  if (e.target.name === "rtmode" || ["rtOut", "rtBack", "rtAirport", "rtNoBag", "rtAp"].includes(e.target.id)) {
+  if (e.target.dataset.mselAll || e.target.dataset.mselPick) {  // airport checkbox dropdowns
+    const id = e.target.dataset.mselAll || e.target.dataset.mselPick;
+    const next = e.target.dataset.mselAll ? [] : mselToggle(id === "rtAp" ? rtAp : airportFilter, e.target.value, e.target.checked);
+    if (id === "rtAp") rtAp = next; else { airportFilter = next; open = null; }
+    render(); return;
+  }
+  if (e.target.name === "rtmode" || ["rtOut", "rtBack", "rtAirport", "rtNoBag"].includes(e.target.id)) {
     if (e.target.name === "rtmode") rtBest = e.target.value === "best";
     else if (e.target.id === "rtAirport") rtAirport = e.target.value;
     else if (e.target.id === "rtNoBag") rtNoBag = e.target.checked;
-    else if (e.target.id === "rtAp") rtAp = e.target.value;
     else if (e.target.id === "rtOut") rtOut = e.target.value;
     else rtBack = e.target.value;
     render();
