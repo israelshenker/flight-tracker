@@ -67,7 +67,7 @@ function roundTripBookLink(legs, adults, carry, checked) {
 // It stays open while boxes are ticked (the page redraws) and closes on a tap outside.
 let openMsel = null;
 // Separate From and To pickers (user): ap.from / ap.to for the fare tables, ap.rtFrom / ap.rtTo
-// for the round-trip box. In the box, From = where Going leaves and Coming back lands.
+// for the round-trip box. In the box, From = where Going leaves and Returning lands.
 const ap = {from: [], to: [], rtFrom: [], rtTo: []};
 function mselHtml(id, codes, picked, names = {}, prefix = "") {
   const label = !picked.length ? "All airports" : picked.length <= 2 ? picked.join(", ") : `${picked.length} airports`;
@@ -92,7 +92,7 @@ document.addEventListener("click", e => {
 
 // Cheapest way to fly a trip, counting the rental car (user: the car can turn a good fare into a
 // bad deal and back). Each candidate: {dep, from, to, price (per person), pax, ...}. The car is
-// picked up where Going lands and returned where Coming back leaves, one day per date between
+// picked up where Going lands and returned where Returning leaves, one day per date between
 // them (at least 1); trip.car = {day, at: {AIRPORT: rate}, oneway}. Returns the cheapest pair.
 function planTrip(outs, backs, car, pairOk) {
   const rate = code => +(car?.at?.[code] ?? car?.day ?? 0) || 0;

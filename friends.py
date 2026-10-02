@@ -92,7 +92,7 @@ def email_body(t, legs, sub, reason):
              "changes": "Fares that changed on this trip:",
              "daily": "Your daily fare update:", "weekly": "Your weekly fare update:"}[reason]
     lines.append(intro)
-    for label, part in (("Going", [x for x in legs if x["going"]]), ("Coming back", [x for x in legs if not x["going"]])):
+    for label, part in (("Going", [x for x in legs if x["going"]]), ("Returning", [x for x in legs if not x["going"]])):
         if not part:
             continue
         if any(not x["going"] for x in legs):

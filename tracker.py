@@ -98,7 +98,7 @@ def is_international(code):
 # Second connections allowed on two-stop tickets (plus the tracked destinations).
 SECOND_STOPS = ["CLE", "ORD", "IAD", "DTW", "CLT", "BOS", "PIT", "BUF", "PHL", "ATL",
                 "DCA", "BWI", "MIA", "MCO", "TPA", "IAH", "DFW", "DEN"]
-# Same list as FLORIDA_AIRPORTS in docs/index.html: a trip's direction ("Going" / "Coming back")
+# Same list as FLORIDA_AIRPORTS in docs/index.html: a trip's direction ("Going" / "Returning")
 # is decided by which side of this line each leg starts on.
 FLORIDA = {"FLL", "DJT", "PBI", "MIA", "MCO", "SFB", "MLB", "RSW", "APF", "TPA", "JAX", "SRQ", "PIE", "PGD",
            "EYW", "MTH", "PNS", "VPS", "ECP", "TLH", "GNV", "DAB", "LAL", "OCF", "BOW"}

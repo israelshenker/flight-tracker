@@ -128,7 +128,7 @@ const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== l
 let rtBest = false, rtOut = "", rtBack = "";
 let rtAirport = "", rtNoBag = false;
 let sortBest = false;  // false = order by the nonstop fare, true = by the cheapest of the three
-const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
+const sortBy = {};  // per table ("Going", "Returning", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
 let signupDone = "";  // the "You're signed up" / "Done" message, kept when the page redraws
 // Read the trip file straight from the newest saved version on GitHub, so a check's new fares
@@ -325,7 +325,7 @@ function roundTripHtml() {
   const codes = [...new Set(one.flatMap(l => [l.o, l.d]))].sort();
   const homes = [...new Set(side(true).map(l => l.o))].sort(), aways = [...new Set(side(true).map(l => l.d))].sort();
   ap.rtFrom = ap.rtFrom.filter(a => homes.includes(a)); ap.rtTo = ap.rtTo.filter(a => aways.includes(a));
-  // Going: From → To. Coming back: To → From.
+  // Going: From → To. Returning: To → From.
   const apFits = (l, g) => g ? apOk(ap.rtFrom, l.o) && apOk(ap.rtTo, l.d) : apOk(ap.rtTo, l.o) && apOk(ap.rtFrom, l.d);
   const cands = (g, day) => side(g).filter(l => l.price != null && (!day || l.dep === day) && apFits(l, g)).map(l => {
     const [nsAir, nsPrice] = Object.entries(l.airlines || {}).filter(([a]) => !skipAir(a)).sort((x, y) => x[1] - y[1])[0] || [null, Infinity];
@@ -343,8 +343,8 @@ function roundTripHtml() {
   const apPick = () => mselHtml("rtFrom", homes, ap.rtFrom, trip.names || {}, "From") + mselHtml("rtTo", aways, ap.rtTo, trip.names || {}, "To");
   const airportPick = () => `<select id="rtAirport" title="Which airports the round trip may use">${[["", "No airport preference"], ["same", "Same airports both ways"], ["dep", "Same departure airport"], ["dest", "Same destination airport"]].map(([v, t]) => `<option value="${v}"${rtAirport === v ? " selected" : ""}>${t}</option>`).join("")}</select>`;
   const bagPick = names => names.length ? `<label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="rtNoBag"${rtNoBag ? " checked" : ""}> Skip airlines Google can't price bags for (${esc(names.join(", "))})</label>` : "";
-  // Same airports both ways: Coming back goes from where Going landed, back to where it left.
-  // Same departure: Coming back lands where Going left. Same destination: Coming back leaves where Going landed.
+  // Same airports both ways: Returning goes from where Going landed, back to where it left.
+  // Same departure: Returning lands where Going left. Same destination: Returning leaves where Going landed.
   const pairOk = (o, b) => !b || !rtAirport || ((rtAirport === "dest" || b.to === o.from) && (rtAirport === "dep" || b.from === o.to));
   // A round trip with no return fare left (no fare yet, or filtered out) has no total.
   const backs = backDates.length ? cands(false, rtBack) : [];
@@ -365,7 +365,7 @@ function roundTripHtml() {
       <span class="opts small"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}> Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}> Best price</label></span>
       <b class="rttotal">${plan ? `${money(plan.total)} total` : "—"}</b></div>
     <div class="rtleg" style="border-top:0">${codes.length > 2 ? apPick() : ""}${backDates.length ? airportPick() : ""}${bagPick(unpriced)}</div>
-    ${row(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? row(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
+    ${row(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? row(back, "Returning", pick("rtBack", backDates, rtBack)) : ""}
     ${rtBookHtml}
     ${plan ? `<div class="small" style="margin-top:6px">${esc(planSummary(plan))}</div>` : ""}
     <div class="muted small" style="margin-top:4px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."}${backDates.length && (trip.car?.day || Object.keys(trip.car?.at || {}).length) ? " Picks the dates with the lowest total, rental car included." : ""} Pick dates to price a specific trip.${[out, back].some(x => x?.bag) ? ` <span style="color:var(--up)">* bag fee not included in that fare (tap the route for details).</span>` : ""}</div></div>`;
@@ -388,7 +388,7 @@ function render() {
     ${signupHtml()}
     ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
-    ${pick && !pick.going ? detail(open) : ""}${table(back, "Coming back")}
+    ${pick && !pick.going ? detail(open) : ""}${table(back, "Returning")}
     ${trip.legs.some(l => bagNote(l)) ? `<p class="small" style="margin-top:14px;color:var(--up)">* Bag fees aren't included in that price: Google can't price bags for ${esc(unpricedAirlines().join(", "))}. Check the airline's own site.</p>` : ""}
     <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Blue "1 stop" = a cheaper fare with one connection. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
 }
