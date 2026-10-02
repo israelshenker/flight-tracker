@@ -14,12 +14,12 @@ Run on GitHub after the price check is saved, in two steps like tracker.py:
   python friends.py merge   save the sign-ups and "last sent" record to data/subscribers.json
 """
 import base64
+import copy
 import json
 import re
 import sys
 import urllib.request
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -32,10 +32,6 @@ RESULTS = tracker.HERE / "friends_results.json"   # stays on the runner
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SCHEDULES = {"changes", "daily", "weekly"}
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-
-def shared_trips(cfg):
-    return [t for t in cfg.get("trips", []) if (t.get("share") or {}).get("id") and t["share"].get("key")]
 
 
 def read_signups(topic, since):
@@ -126,7 +122,8 @@ def send():
     latest = tracker.read_json(tracker.LATEST, {})
     book = tracker.read_json(SUBSCRIBERS, {"subs": {}})
     subs = book.setdefault("subs", {})
-    trips = shared_trips(cfg)
+    trips = tracker.shared_trips(cfg)
+    before = copy.deepcopy(book)
     by_id = {t["id"]: t for t in cfg.get("trips", [])}
     now = datetime.now(timezone.utc)
 
@@ -180,14 +177,15 @@ def send():
         if not reason:
             continue
         try:
-            notify.send_email(f"{t.get('name') or 'Trip'}: fare update {tracker.nice_date(now.astimezone(tracker.LOCAL_TZ).date().isoformat())}",
+            notify.send_email(f"{t.get('name') or 'Trip'}: fare update {tracker.nice_date(tracker.local_today().isoformat())}",
                               email_body(t, legs, sub, reason), to=sub["email"])
         except Exception as e:
             print(f"  a friend email failed: {type(e).__name__}")
             continue
         sub["last_sent"], sub["last_prices"] = now.isoformat(timespec="seconds"), prices
         sent += 1
-    RESULTS.write_text(json.dumps(book), encoding="utf-8")
+    if book != before:  # unchanged = nothing to save (saving re-encrypts it: a commit every hour)
+        RESULTS.write_text(json.dumps(book), encoding="utf-8")
     print(f"  friend emails: {added} new sign-ups, {stopped} stopped, {sent} sent, {len(subs)} signed up")
     return 0
 

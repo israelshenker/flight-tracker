@@ -1,7 +1,7 @@
 """Reads nonstop fares from Google Flights.
 
-One search can cover several departure and arrival airports at once (Google
-allows up to 7 on each side), so a whole day of Florida <-> New York routes
+One search can cover several departure and arrival airports at once (up to 8
+on each side tested), so a whole day of Florida <-> New York routes
 takes a handful of searches instead of one per route.
 
 Replaces fast-flights' reader, which skipped Google's "Top flights" list
@@ -15,7 +15,6 @@ from primp import Client
 from selectolax.lexbor import LexborHTMLParser
 
 URL = "https://www.google.com/travel/flights"
-MAX_AIRPORTS_PER_SIDE = 7
 
 
 class Blocked(Exception):
@@ -40,12 +39,16 @@ def _int(num, value):
     return _varint(num << 3) + _varint(value)
 
 
-def build_tfs(depart, origins, dests, ret="", adults=1, carry_on=0, checked=0, max_stops=0, via=()):
-    """Google's `tfs` search parameter: economy, nonstop unless max_stops says otherwise.
+def build_tfs(depart, origins, dests, ret="", adults=1, carry_on=0, checked=0, max_stops=0, via=(), flight=None):
+    """Google's `tfs` parameter: economy, nonstop unless max_stops says otherwise.
     Bags make Google include each airline's bag fees in the fare. `via` limits
-    connections to those airports (outbound flight only)."""
+    connections to those airports (outbound flight only). flight = (airline code, number)
+    picks one exact flight, for Google's booking page (one origin and destination)."""
     def leg(date, froms, tos, connect=()):
         data = _field(2, date.encode())
+        if flight and date == depart:
+            data += _field(4, _field(1, froms[0].encode()) + _field(2, date.encode()) + _field(3, tos[0].encode())
+                           + _field(5, flight[0].encode()) + _field(6, flight[1].encode()))
         data += b"".join(_field(13, _field(2, a.encode())) for a in froms)
         data += b"".join(_field(14, _field(2, a.encode())) for a in tos)
         data += b"".join(_field(15, a.encode()) for a in connect)
@@ -62,16 +65,23 @@ def build_tfs(depart, origins, dests, ret="", adults=1, carry_on=0, checked=0, m
     return base64.b64encode(info).decode()
 
 
-def search(depart, origins, dests, ret="", adults=1, carry_on=0, checked=0, max_stops=0, via=()):
-    """Returns a list of itineraries with exactly max_stops + 1 flights:
-    {"origin", "dest", "airline", "price", "departs", "final"} where origin, dest and
-    departs (HH:MM) describe the first flight and final is where the ticket ends.
+def _client():
+    return Client(impersonate="chrome_145", impersonate_os="macos", referer=True, cookie_store=True)
+
+
+def hhmm(t):
+    """'07:05' from Google's [hour, minute] (either may be missing = 0)."""
+    h, m = ([*(t or []), 0, 0])[:2]
+    return f"{h or 0:02d}:{m or 0:02d}"
+
+
+def search(depart, origins, dests, ret="", adults=1, carry_on=0, checked=0):
+    """Nonstop itineraries: {"origin", "dest", "airline", "price", "departs" (HH:MM), "flight", ...}.
     An empty list means Google has no such flights for that search.
     Raises Blocked if Google didn't return a results page."""
-    client = Client(impersonate="chrome_145", impersonate_os="macos", referer=True, cookie_store=True)
-    html = client.get(URL, params={"tfs": build_tfs(depart, origins, dests, ret, adults, carry_on, checked, max_stops, via),
-                                   "hl": "en", "curr": "USD"}).text
-    return [it for it in parse(html) if it["flights"] == max_stops + 1]
+    html = _client().get(URL, params={"tfs": build_tfs(depart, origins, dests, ret, adults, carry_on, checked),
+                                      "hl": "en", "curr": "USD"}).text
+    return [it for it in parse(html) if it["flights"] == 1]
 
 
 def flight_id(seg):
@@ -110,14 +120,12 @@ def parse(html):
             # Allegiant (both missing) and Frontier (checked missing, carry-on fine).
             bags = item[5] if len(item) > 5 and isinstance(item[5], list) else []
             seg = legs[0]
-            hour, minute = ([*(seg[8] or []), None, None])[:2]
             out.append({
                 "origin": seg[3],
                 "dest": seg[6],
                 "airline": ", ".join(flight[1]) if flight[1] else "",
                 "price": int(price),
-                "departs": f"{hour or 0:02d}:{minute or 0:02d}",
-                "final": legs[-1][6],
+                "departs": hhmm(seg[8]),
                 "flights": len(legs),
                 "flight": flight_id(seg),
                 "no_carry_fee": bool(len(bags) > 2 and bags[2]),
@@ -145,7 +153,7 @@ def feed_search(depart, origins, dests, adults=1, carry_on=0, checked=0, max_sto
     [{"price", "airline", "legs": [(from, to, "HH:MM", flight), ...],
       "times": [(depart "HH:MM", arrive "HH:MM", day offset), ...] per leg}].
     Raises Blocked if Google sends back nothing usable."""
-    stops = {0: 1, 1: 2, 2: 3}[max_stops]
+    stops = max_stops + 1
     segment = [[[[a, 0] for a in origins]], [[[a, 0] for a in dests]], None, stops, None, None,
                depart, None, None, list(via) or None, None, None, None, None, 3]
     main = ([None, None, 2, None, [], 1, [adults, 0, 0, 0], None, None, None,
@@ -156,8 +164,7 @@ def feed_search(depart, origins, dests, adults=1, carry_on=0, checked=0, max_sto
     body = [[], main, 2, 1, 0, 1]  # 2 = cheapest first, 1 = all results
     data = "f.req=" + urllib.parse.quote(json.dumps([None, json.dumps(body, separators=(",", ":"))],
                                                       separators=(",", ":")))
-    client = Client(impersonate="chrome_145", impersonate_os="macos", referer=True, cookie_store=True)
-    res = client.post(FEED_URL + "?hl=en&curr=USD&gl=us", content=data.encode(),
+    res = _client().post(FEED_URL + "?hl=en&curr=USD&gl=us", content=data.encode(),
                       headers={"content-type": "application/x-www-form-urlencoded;charset=UTF-8"})
     text = res.text.lstrip()
     if not text.startswith(")]}'"):
@@ -178,12 +185,10 @@ def feed_search(depart, origins, dests, adults=1, carry_on=0, checked=0, max_sto
         for item in (block[0] if isinstance(block, list) and block and block[0] else []):
             try:
                 raw = item[0][2]
-                legs = [(l[3], l[6], "%02d:%02d" % tuple(([*(l[8] or []), 0, 0])[:2]), flight_id(l)) for l in raw]
+                legs = [(l[3], l[6], hhmm(l[8]), flight_id(l)) for l in raw]
                 # Departure and arrival of each flight, for layovers: l[8] leaves, l[10] lands,
                 # l[21] the date it leaves, l[20]/l[22] unused here.
-                times = [("%02d:%02d" % tuple(([*(l[8] or []), 0, 0])[:2]),
-                          "%02d:%02d" % tuple(([*(l[10] or []), 0, 0])[:2]),
-                          l[21] if len(l) > 21 else None) for l in raw]
+                times = [(hhmm(l[8]), hhmm(l[10]), l[21] if len(l) > 21 else None) for l in raw]
                 price = item[1][0][1]
             except (IndexError, TypeError):
                 continue

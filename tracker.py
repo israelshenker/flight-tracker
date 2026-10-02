@@ -44,8 +44,8 @@ PAGE_URL = "https://israelshenker.github.io/flight-tracker/"
 FAILURE_ALERT_EVERY = timedelta(hours=12)
 HEALTH_STALE = timedelta(hours=3)          # no full check this long = checks were missed
 HEALTH_ALERT_EVERY = timedelta(hours=6)
-DEAD_ROUTE_EVERY = timedelta(hours=23)
-EMPTY_CHECKS_TO_ACCEPT = 3  # empty results this many checks in a row = the flights really are gone     # routes with no nonstops are checked daily
+DEAD_ROUTE_EVERY = timedelta(hours=23)  # routes with no nonstops are checked daily
+EMPTY_CHECKS_TO_ACCEPT = 3  # empty results this many checks in a row = the flights really are gone
 TIME_BUDGET_SECONDS = 28 * 60  # the GitHub job is killed at 40 min and would save nothing
 LOCAL_TZ = ZoneInfo("America/New_York")  # GitHub runs in UTC; dates are Eastern
 # Google's search box stops at 7 airports per side, but its search accepts all 8 of ours
@@ -59,8 +59,8 @@ CODE_ALIASES = {"PBI": "DJT"}  # Palm Beach was renamed PBI -> DJT in Aug 2026
 #   one-stop tickets: connections limited to your destinations, so the 300 cheapest
 #     reach well past typical nonstop fares; checked every hourly run.
 #   two-stop tickets: also allow common second stops (like Newark then Cleveland); more
-#     tickets compete for the 300, so it's a wider net that runs every 3 hours.
-SKIP_EVERY = {1: timedelta(minutes=50), 2: timedelta(minutes=50)}  # both passes every hourly run
+#     tickets compete for the 300, so it's a wider net.
+SKIP_EVERY = timedelta(minutes=50)  # both passes, every hourly run
 SKIP_MAX_SEARCHES = 200  # per run; anything left goes first next run
 # One-stop fares to the tracked destination (shown next to the nonstop, never instead of it).
 ONESTOP_EVERY = timedelta(minutes=50)   # once every hourly run
@@ -113,16 +113,12 @@ def local_today():
 
 
 def read_json(path, default):
-    text = vault.read_text(path) if path != RESULTS else (path.read_text(encoding="utf-8") if path.exists() else None)
+    text = vault.read_text(path)
     return json.loads(text) if text is not None else default
 
 
 def write_json(path, value):
-    text = json.dumps(value, indent=2, sort_keys=True)
-    if path == RESULTS:  # stays on the GitHub runner, never committed
-        path.write_text(text, encoding="utf-8")
-    else:
-        vault.write_text(path, text)
+    vault.write_text(path, json.dumps(value, indent=2, sort_keys=True))
 
 
 def log(detail, generic=None):
@@ -190,9 +186,9 @@ def options_label(code):
 
 
 def hour_label(h):
-    h = h % 24 if h != 24 else 24
-    if h in (0, 24):
+    if h % 24 == 0:
         return "midnight"
+    h %= 24
     if h == 12:
         return "noon"
     return f"{h % 12} {'AM' if h < 12 else 'PM'}"
@@ -207,6 +203,17 @@ def time_label(hhmm):
 
 def key_of(origin, dest, depart, ret, opts=""):
     return f"{origin}-{dest}|{depart}|{ret}" + (f"|{opts}" if opts else "")
+
+
+def watch_key(w):
+    """A tracked route's key, from its settings."""
+    return key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))
+
+
+def back_opts(opts):
+    """Options for a round trip's return leg priced as a one-way: bags and passengers carry over."""
+    o = parse_options(opts)
+    return options_code({"carry_on": o["carry_on"], "checked": o["checked"], "adults": o["adults"]})
 
 
 def split_key(key):
@@ -376,7 +383,7 @@ def hidden_search(cfg, latest, fares, errors, started, adults, stamp):
             continue
         for stops in (1, 2):
             last = (latest.get(key) or {}).get(f"hidden{stops}_checked_at")
-            if not last or now - datetime.fromisoformat(last) >= SKIP_EVERY[stops]:
+            if not last or now - datetime.fromisoformat(last) >= SKIP_EVERY:
                 # International endings: always for international trips (a passport is needed
                 # anyway); for domestic trips only if the user turned that on (off by default).
                 # US territories count as domestic.
@@ -491,15 +498,32 @@ def feed_tickets(dep, origins, finals, via, adults, carry, stops, need, budget):
 def skiplagged_off_keys(cfg):
     """Routes whose skiplagged fares are turned off: one route at a time, or a whole date."""
     off_dates = set(cfg.get("skiplagged_off_dates", []))
-    return {key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))
+    return {watch_key(w)
             for w in cfg.get("watches", []) if w.get("no_skiplagged") or w["depart"] in off_dates}
 
 
 def onestop_off_keys(cfg):
     """Routes with one-stop fares turned off: one route at a time, or a whole date."""
     off_dates = set(cfg.get("onestop_off_dates", []))
-    return {key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))
+    return {watch_key(w)
             for w in cfg.get("watches", []) if w.get("no_onestop") or w["depart"] in off_dates}
+
+
+def skip_shown(h, key, price, cfg, no_skip):
+    """A saved skiplagged ticket counts (alerts, friend pages): not switched off for the route or
+    date, not an international ending on a domestic trip unless that's on, and under the nonstop."""
+    return bool(h and key not in no_skip and (not price or h["price"] < price)
+                and not (h.get("international") and not is_international(split_key(key)[1])
+                         and not cfg.get("skiplagged_intl_domestic")))
+
+
+def onestop_shown(one, key, price, cfg, off):
+    """A 1-stop fare counts: under the nonstop, and the 1-stop search is on for it."""
+    return bool(one and price and one["price"] < price and key not in off and cfg.get("onestop") is not False)
+
+
+def layover_text(minutes):
+    return f"{minutes // 60}h {minutes % 60}m"
 
 
 def layover_minutes(ticket):
@@ -551,7 +575,7 @@ def onestop_search(cfg, latest, fares, errors, started, adults, stamp):
             for os_ in chunks(origins, MAX_AIRPORTS):
                 for ds in chunks(dests, google_flights.FEED_MAX_CITIES):
                     if time.monotonic() - started > TIME_BUDGET_SECONDS:
-                        log("  1-stop: out of time; the rest go first next run", "  1-stop: out of time; the rest go first next run")
+                        print("  1-stop: out of time; the rest go first next run")
                         return
                     left -= 1
                     tickets += per_person(google_flights.feed_search(dep, os_, ds, pax, carry, checked, max_stops=1), pax)
@@ -586,8 +610,7 @@ def onestop_search(cfg, latest, fares, errors, started, adults, stamp):
         found_total += found
         log(f"  1-stop {dep}: {len(tickets)} tickets, a cheaper connection on {found} of {len(routes)} routes",
             f"  1-stop search: {len(tickets)} tickets, connections on {found} of {len(routes)} routes")
-    log(f"  1-stop: {ONESTOP_MAX_SEARCHES - left} of {ONESTOP_MAX_SEARCHES} searches used, {time.monotonic() - started_pass:.0f}s",
-        f"  1-stop: {ONESTOP_MAX_SEARCHES - left} of {ONESTOP_MAX_SEARCHES} searches used, {time.monotonic() - started_pass:.0f}s")
+    print(f"  1-stop: {ONESTOP_MAX_SEARCHES - left} of {ONESTOP_MAX_SEARCHES} searches used, {time.monotonic() - started_pass:.0f}s")
 
 
 def combined_hidden(f, prev):
@@ -635,15 +658,9 @@ def book_link(key, flight, adults):
     if not m or ret:
         return None
     opt = parse_options(opts)
-    F, I = google_flights._field, google_flights._int
-    seg = F(1, o.encode()) + F(2, dep.encode()) + F(3, d.encode()) + F(5, m.group(1).encode()) + F(6, m.group(2).encode())
-    leg = F(2, dep.encode()) + F(4, seg) + F(13, F(2, o.encode())) + F(14, F(2, d.encode())) + I(5, 0)
-    info = F(3, leg) + b"".join(I(8, 1) for _ in range(opt["adults"] or adults)) + I(9, 1)
-    if opt["carry_on"] or opt["checked"]:
-        info += F(13, (I(2, opt["carry_on"]) if opt["carry_on"] else b"") + (I(3, opt["checked"]) if opt["checked"] else b""))
-    info += I(19, 2)
-    return "https://www.google.com/travel/flights/booking?" + urllib.parse.urlencode(
-        {"tfs": base64.b64encode(info).decode(), "hl": "en", "curr": "USD"})
+    tfs = google_flights.build_tfs(dep, [o], [d], adults=opt["adults"] or adults, carry_on=opt["carry_on"],
+                                   checked=opt["checked"], flight=(m.group(1), m.group(2)))
+    return "https://www.google.com/travel/flights/booking?" + urllib.parse.urlencode({"tfs": tfs, "hl": "en", "curr": "USD"})
 
 
 def route_link(key):
@@ -705,10 +722,8 @@ def search(only_new=False, travel_day=False):
     extras = set()
     for o, d, dep, ret, opts in todo:
         if ret:
-            opt = parse_options(opts)
-            back_opts = options_code({"carry_on": opt["carry_on"], "checked": opt["checked"], "adults": opt["adults"]})
             extras.add((o, d, dep, "", opts))
-            extras.add((d, o, ret, "", back_opts))
+            extras.add((d, o, ret, "", back_opts(opts)))
     extras -= set(routes)
     searches = plan(sorted(set(todo) | extras))
     # Longest-unchecked first, so anything cut off by the time budget goes first next run.
@@ -765,10 +780,9 @@ def search(only_new=False, travel_day=False):
         o, d, dep, ret, opts = split_key(key)
         if not ret:
             continue
-        opt = parse_options(opts)
         leg_of = lambda k: legs.get(k) or fares.get(k)  # a leg may also be a route you track
         out = leg_of(key_of(o, d, dep, "", opts))
-        back = leg_of(key_of(d, o, ret, "", options_code({"carry_on": opt["carry_on"], "checked": opt["checked"], "adults": opt["adults"]})))
+        back = leg_of(key_of(d, o, ret, "", back_opts(opts)))
         if out and back and out["airlines"] and back["airlines"]:
             pick = lambda leg: min(leg["flights"], key=lambda x: x["price"]) if leg["flights"] else None
             po, pb = pick(out), pick(back)
@@ -794,10 +808,10 @@ def search(only_new=False, travel_day=False):
     targets, book = {}, set()
     for w in cfg.get("watches", []):
         if w.get("alert_below"):
-            targets[key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))] = float(w["alert_below"])
+            targets[watch_key(w)] = float(w["alert_below"])
             if w.get("book"):  # "Create one-click booking": a BUY push with a Book button when it crosses
-                book.add(key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)))
-    no_skip = skiplagged_off_keys(cfg)
+                book.add(watch_key(w))
+    no_skip, onestop_off = skiplagged_off_keys(cfg), onestop_off_keys(cfg)
     # Each line (email and push) starts with one word (user's request): UP, DOWN, BELOW,
     # NEW (nonstop), SKIPLAGGED or ONE-WAYS; then date, route, price, change.
     lines, items, counts, price_email_day = [], [], defaultdict(int), None
@@ -862,7 +876,7 @@ def search(only_new=False, travel_day=False):
                      f"{time_label(ow['back']['departs'])} · ${new - ow['total']} under the round trip")
                 counts["two one-ways"] += 1
         one = f.get("onestop")
-        if one and new and one["price"] < new and key not in onestop_off_keys(cfg):
+        if onestop_shown(one, key, new, cfg, onestop_off):
             prior = (before or {}).get("onestop") or {}
             # No alert the first time a connection is found (that would be every route at once);
             # after that, the usual $/% amounts, or any time it's under the route's alert price.
@@ -876,17 +890,15 @@ def search(only_new=False, travel_day=False):
                 lines.append(f"{lead} {describe(key)}: 1 stop ${one['price']} · {moved}"
                              f"${new - one['price']} under the nonstop · "
                              f"{one['airline']} at {time_label(one['departs'])} via {one['via']}, "
-                             f"{one['layover'] // 60}h {one['layover'] % 60}m layover{link}")
+                             f"{layover_text(one['layover'])} layover{link}")
                 item(key, f"1 STOP ${one['price']}" + (f" · {word} ${abs(one['price'] - was)}" if moved else ""),
                      "up" if word == "UP" else "down", one["price"],
                      f"{one['airline']} {time_label(one['departs'])} via {one['via']} · "
-                     f"{one['layover'] // 60}h {one['layover'] % 60}m layover · ${new - one['price']} under the nonstop"
+                     f"{layover_text(one['layover'])} layover · ${new - one['price']} under the nonstop"
                      + (f" · was ${was}" if moved else ""))
                 counts["1-stop"] += 1
         h = combined_hidden(f, before)
-        if h and h.get("international") and not is_international(split_key(key)[1]) and not cfg.get("skiplagged_intl_domestic"):
-            h = None  # international ending on a domestic trip, with that option off
-        if h and key not in no_skip and (not new or h["price"] < new):
+        if skip_shown(h, key, new, cfg, no_skip):
             prior = (before or {}).get("hidden") or {}
             if not prior.get("price") or is_flagged(prior["price"], h["price"], cfg):
                 vs = f", ${new - h['price']} under the nonstop" if new else ""
@@ -936,7 +948,7 @@ def search(only_new=False, travel_day=False):
             notify.send("Flight tracker: searches failing", text + "\n\n" + "\n".join(errors[:20]), click=alert_link(alert))
             failure_alert = True
 
-    write_json(RESULTS, {
+    RESULTS.write_text(json.dumps({
         "stamp": stamp, "fares": fares, "price_email_day": price_email_day, "unpriced_bag_airlines": sorted(unpriced), "failure_alert": failure_alert, "health_alert": health_alert,
         "empty_streaks": empty_streaks,
         "alerts": alerts_out,
@@ -945,7 +957,7 @@ def search(only_new=False, travel_day=False):
                      # instead of making it look like they were skipped for lack of time.
                      "daily": len(routes) - len(todo), "errors": errors[:20],
                      "only_new": only_new or travel_day},  # travel-day checks don't replace the hourly summary
-    })
+    }, sort_keys=True), encoding="utf-8")
     print(f"{len(lines)} alert lines ({dict(counts)}), {len(errors)} errors")
     return 0
 
@@ -1004,11 +1016,11 @@ def utc(at):
     return datetime.fromisoformat(at.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
-def log_trails(rows):
-    """Replay the change log: each route key's cheapest nonstop over time, as [time, price]
-    points where it changed. A row with an airline and no price = that airline dropped out;
-    no airline and no price = no nonstops at all."""
-    fares, trails = defaultdict(dict), defaultdict(list)
+def replay(rows):
+    """Walk the change log in order, yielding (row, key, that route's airline fares after the row).
+    A row with an airline and no price = that airline dropped out; no airline and no price = no
+    nonstops at all."""
+    fares = defaultdict(dict)
     for row in rows:
         k = key_of(row["origin"], row["destination"], row["depart"], row["return"], row["options"])
         if not row["price"]:
@@ -1018,7 +1030,14 @@ def log_trails(rows):
                 fares[k].clear()
         else:
             fares[k][row["airline"]] = int(float(row["price"]))
-        cheapest = min(fares[k].values()) if fares[k] else None
+        yield row, k, fares[k]
+
+
+def log_trails(rows):
+    """Each route key's cheapest nonstop over time, as [time, price] points where it changed."""
+    trails = defaultdict(list)
+    for row, k, fares in replay(rows):
+        cheapest = min(fares.values()) if fares else None
         at, t = utc(row["checked_at"]), trails[k]
         if t and t[-1][0] == at:
             t[-1][1] = cheapest  # several airlines logged in the same check
@@ -1032,53 +1051,15 @@ def log_trails(rows):
 def last_fares(rows):
     """Each route key's airline fares as they last stood while it still had nonstops, for the
     "No Longer Available" detail on friend pages (the entry itself has no airlines by then)."""
-    fares, last = defaultdict(dict), {}
-    for row in rows:
-        k = key_of(row["origin"], row["destination"], row["depart"], row["return"], row["options"])
-        if not row["price"]:
-            if row["airline"]:
-                fares[k].pop(row["airline"], None)
-            else:
-                fares[k].clear()
-        else:
-            fares[k][row["airline"]] = int(float(row["price"]))
-        if fares[k]:
-            last[k] = dict(fares[k])
+    last = {}
+    for row, k, fares in replay(rows):
+        if fares:
+            last[k] = dict(fares)
     return last
-
-
-def watch_trail(w, trails):
-    """A route's fare points under its current bags/times/passengers. Earlier settings aren't
-    included: a settings change isn't a market move (user's choice), so moves restart there."""
-    return trails.get(key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)), [])
-
-
-def moves_from_log(e, trail):
-    """`moves` for an entry from its log points, ending on the entry's current fare."""
-    t = [list(p) for p in trail if p[0] <= e["checked_at"]]
-    if not t or t[-1][1] != e.get("price"):
-        t.append([e["checked_at"], e.get("price")])
-    return last_day(t, e["checked_at"])
 
 
 def read_log():
     return list(csv.DictReader(io.StringIO(vault.read_text(HISTORY) or "")))
-
-
-def moves_from_history(latest, cfg):
-    """One-time rebuild of `moves` from the change log (including earlier bag/time settings)."""
-    trails = log_trails(read_log())
-    m_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
-    for w in cfg.get("watches", []):
-        e = latest.get(key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)))
-        if e and e.get("checked_at"):
-            e["moves"] = moves_from_log(e, watch_trail(w, trails))
-    m = [e["moves"] for e in latest.values() if e.get("moves") and e.get("price") is not None]
-    print(f"  24-hour moves filled from the change log: {len(m)} priced routes, "
-          f"{sum(t[0][1] is not None and t[0][1] != t[-1][1] for t in m)} changed, "
-          f"{sum(len(t) > 1 for t in m)} moved; "
-          f"{sum(1 for w in cfg.get('watches', []) for h in w.get('history_from', []) if utc(h['until']) > m_cutoff)} "
-          f"bag/time/passenger changes in the last 24 hours")
 
 
 def entry(stamp, f, prev=None):
@@ -1140,10 +1121,6 @@ def trip_going(legs, trip=None):
     return {watch_key(w): bool(w.get("return")) or (w["origin"] in FLORIDA) == side for w in legs}
 
 
-def watch_key(w):
-    return key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))
-
-
 def google_link(w, adults, max_stops=0):
     o = parse_options(options_code(w))
     tfs = google_flights.build_tfs(w["depart"], [w["origin"]], [w["dest"]], w.get("return", ""),
@@ -1178,29 +1155,28 @@ def trip_legs(cfg, latest, t, trails):
                "low": e.get("low"), "last_price": e.get("last_price"), "link": google_link(w, adults), "link1": google_link(w, adults, 1),
                "pax": parse_options(options_code(w))["adults"] or adults,
                "bagless": e.get("bagless") or {},
-               "onestop": e.get("onestop") if e.get("onestop") and e.get("price") and e["onestop"]["price"] < e["price"]
-                          and k not in onestop_off and cfg.get("onestop") is not False else None}
+               "onestop": e.get("onestop") if onestop_shown(e.get("onestop"), k, e.get("price"), cfg, onestop_off) else None}
         h = e.get("hidden")
-        if (t.get("skiplagged") and h and cfg.get("skiplagged", True) and k not in no_skip
-                and not (h.get("international") and not is_international(w["dest"])
-                         and not cfg.get("skiplagged_intl_domestic"))
-                and (e.get("price") is None or h["price"] < e["price"])):
+        if t.get("skiplagged") and cfg.get("skiplagged", True) and skip_shown(h, k, e.get("price"), cfg, no_skip):
             leg["skip"] = {x: h.get(x) for x in ("price", "airline", "departs", "final", "via", "stops", "international")}
         out.append(leg)
     return out
 
 
-def write_trip_pages(cfg, latest):
+def shared_trips(cfg):
+    return [t for t in cfg.get("trips", []) if (t.get("share") or {}).get("id") and t["share"].get("key")]
+
+
+def write_trip_pages(cfg, latest, log_rows):
     """For every shared trip, docs/t/<share id>.json: that trip's fares only, AES-256-GCM with
     the trip's own key. The key is only in config.json (encrypted) and in the link the user
     shares (after the #, which browsers never send to a server). Files of trips no longer
     shared are deleted, so old links stop working."""
-    trips = [t for t in cfg.get("trips", []) if (t.get("share") or {}).get("id") and t["share"].get("key")]
+    trips = shared_trips(cfg)
     TRIP_PAGES.mkdir(parents=True, exist_ok=True)
     keep = set()
     if trips:
-        rows = read_log()
-        trails, lastf = log_trails(rows), last_fares(rows)
+        trails, lastf = log_trails(log_rows), last_fares(log_rows)
         for t in trips:
             snap = {"v": 1, "name": t.get("name", ""), "person": t.get("person", ""),
                     "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1224,17 +1200,15 @@ def write_trip_pages(cfg, latest):
     print(f"  trip pages: {len(keep)} shared")
 
 
-def archive_past_dates(cfg, latest):
+def archive_past_dates(cfg, latest, rows):
     """Before a passed travel date is dropped, keep its routes in ARCHIVE (user: "a way to find
     the archived tracking info"): each route's settings, its last saved state and the change-log
     rows for that date. Kept until deleted by hand."""
     today = local_today().isoformat()
-    text = vault.read_text(HISTORY)
-    rows = list(csv.reader(io.StringIO(text)))[1:] if text else []
     past = defaultdict(lambda: {"watches": {}, "latest": {}, "history": []})
     for w in cfg.get("watches", []):
         if w["depart"] < today:
-            past[w["depart"]]["watches"][key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w))] = w
+            past[w["depart"]]["watches"][watch_key(w)] = w
     for k, e in latest.items():
         if split_key(k)[2] < today:
             past[split_key(k)[2]]["latest"][k] = e
@@ -1245,7 +1219,7 @@ def archive_past_dates(cfg, latest):
         return
     archive = read_json(ARCHIVE, {})
     names = {t["id"]: t.get("name", "") for t in cfg.get("trips", [])}
-    for date, p in past.items():
+    for day, p in past.items():
         # Routes no longer in config (stopped, or dropped by the page) still get a card.
         for k in p["latest"]:
             if k not in p["watches"]:
@@ -1253,44 +1227,40 @@ def archive_past_dates(cfg, latest):
                 opt = parse_options(opts)
                 p["watches"][k] = {"origin": o, "dest": d, "depart": dep, "return": ret,
                                    **{f: v for f, v in opt.items() if v and not (f == "time_to" and v == 24)}}
-        a = archive.setdefault(date, {"watches": [], "latest": {}, "history": [], "trips": {}})
-        have = {key_of(w["origin"], w["dest"], w["depart"], w.get("return", ""), options_code(w)) for w in a["watches"]}
+        a = archive.setdefault(day, {"watches": [], "latest": {}, "history": [], "trips": {}})
+        have = {watch_key(w) for w in a["watches"]}
         a["watches"] += [w for k, w in p["watches"].items() if k not in have]
         a["latest"].update(p["latest"])
         a["history"] += [r for r in p["history"] if r not in a["history"]]
         a["trips"].update({i: names[i] for w in a["watches"] for i in w.get("trips", []) if i in names})
         a["archived_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        print(f"  archived {date}: {len(a['watches'])} routes, {len(a['history'])} log rows")
+        print(f"  archived {day}: {len(a['watches'])} routes, {len(a['history'])} log rows")
     write_json(ARCHIVE, archive)
 
 
 def drop_past_dates(cfg):
-    """Remove flights whose departure date has passed (Eastern time) from config.json and
-    their rows from history.csv, so neither keeps growing. Git history still has them."""
+    """Remove flights whose departure date has passed (Eastern time) from config.json, along with
+    past per-date switches, so it doesn't keep growing. (Their change-log rows are dropped in
+    merge.) Git history still has them."""
     today = local_today().isoformat()
     watches = [w for w in cfg.get("watches", []) if w["depart"] >= today]
-    off = [d for d in cfg.get("skiplagged_off_dates", []) if d >= today]
-    if len(watches) != len(cfg.get("watches", [])) or off != cfg.get("skiplagged_off_dates", off):
+    changed = len(watches) != len(cfg.get("watches", []))
+    for f in ("skiplagged_off_dates", "onestop_off_dates"):
+        if f in cfg:
+            off = [d for d in cfg[f] if d >= today]
+            changed |= off != cfg[f]
+            cfg[f] = off
+    if changed:
         print(f"  dropping {len(cfg.get('watches', [])) - len(watches)} past route/dates")
         cfg["watches"] = watches
-        if "skiplagged_off_dates" in cfg:
-            cfg["skiplagged_off_dates"] = off
         vault.write_text(CONFIG, json.dumps(cfg, indent=2) + "\n")
-    text = vault.read_text(HISTORY)
-    if text is not None:
-        rows = list(csv.reader(io.StringIO(text)))
-        keep = rows[:1] + [r for r in rows[1:] if len(r) > 3 and r[3] >= today]
-        if len(keep) != len(rows):
-            out = io.StringIO()
-            csv.writer(out, lineterminator="\n").writerows(keep)
-            vault.write_text(HISTORY, out.getvalue())
 
 
 def merge():
     """Apply RESULTS to the newest data files. Safe to repeat after re-syncing with GitHub."""
     if not RESULTS.exists():
         return 0
-    res = read_json(RESULTS, {})
+    res = json.loads(RESULTS.read_text(encoding="utf-8"))
     DATA.mkdir(exist_ok=True)
     cfg = read_json(CONFIG, {})
     latest = read_json(LATEST, {})
@@ -1314,26 +1284,22 @@ def merge():
         if not f["airlines"] and (prev is None or before):
             rows.append([stamp, origin, dest, depart, ret, "", "", opts])
         latest[key] = entry(stamp, f, prev)
-    if state.get("moves_from_history") != 4:
-        moves_from_history(latest, cfg)
-        state["moves_from_history"] = 4
     for key, streak in res.get("empty_streaks", {}).items():
         if key in latest and latest[key].get("checked_at", "") <= stamp:
             latest[key]["empty_streak"] = streak  # entry() above starts every new result at 0
 
-    archive_past_dates(cfg, latest)  # before past dates leave latest, config and the change log
+    # The change log, read once: archive past dates from it, add this run's rows, drop past dates.
+    text = vault.read_text(HISTORY)
+    log_rows = list(csv.reader(io.StringIO(text))) if text else [HISTORY_HEADER]
+    archive_past_dates(cfg, latest, log_rows[1:])  # before past dates leave latest, config and the change log
     # Forget routes/dates no longer tracked (stopped on the web page, or in the past).
     wanted = {key_of(*r) for r in build_searches(cfg)}
     latest = {k: v for k, v in latest.items() if k in wanted}
 
+    today = local_today().isoformat()
+    log_rows = log_rows[:1] + [r for r in log_rows[1:] + [[str(x) for x in r] for r in rows] if len(r) > 3 and r[3] >= today]
     out = io.StringIO()
-    old = vault.read_text(HISTORY)
-    if old:
-        out.write(old if old.endswith("\n") else old + "\n")
-    w = csv.writer(out, lineterminator="\n")
-    if not old:
-        w.writerow(HISTORY_HEADER)
-    w.writerows(rows)
+    csv.writer(out, lineterminator="\n").writerows(log_rows)
     vault.write_text(HISTORY, out.getvalue())
     write_json(LATEST, latest)
     save_alerts(res.get("alerts", []))
@@ -1343,7 +1309,7 @@ def merge():
     if any((t.get("share") or {}).get("id") for t in cfg.get("trips", [])) and not cfg.get("signup_topic"):
         cfg["signup_topic"] = "trip-signup-" + os.urandom(12).hex()
         vault.write_text(CONFIG, json.dumps(cfg, indent=2) + "\n")
-    write_trip_pages(cfg, latest)
+    write_trip_pages(cfg, latest, [dict(zip(log_rows[0], r)) for r in log_rows[1:]])
 
     if res.get("unpriced_bag_airlines"):
         state["unpriced_bag_airlines"] = res["unpriced_bag_airlines"]

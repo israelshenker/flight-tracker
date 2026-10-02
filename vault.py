@@ -96,7 +96,8 @@ def write_text(path, text):
 def encrypt_all():
     if not enabled():
         sys.exit("Set DATA_KEY first.")
-    for rel in ("config.json", "data/latest.json", "data/state.json", "data/history.csv"):
+    for rel in ("config.json", "data/latest.json", "data/state.json", "data/history.csv",
+                "data/alerts.json", "data/archive.json", "data/subscribers.json"):
         path = HERE / rel
         text = read_text(path)
         if text is not None:

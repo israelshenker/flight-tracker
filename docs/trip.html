@@ -77,7 +77,7 @@ td.times{color:var(--muted);font-size:13px}
 .signup{margin-top:14px}
 .opts{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
 .opts label{display:flex;gap:6px;align-items:center}
-.signup .opts{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:10px 0}
+.signup .opts{margin:10px 0}
 .signup label{display:flex;gap:6px;align-items:center;font-size:14px}
 .signup input[type=email],.signup select{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);max-width:100%}
 .signup input[type=email]{width:260px}
@@ -136,8 +136,11 @@ function day(leg) {
 const moveClass = leg => { const m = day(leg); return !m || m.base == null || m.base === leg.price ? "" : leg.price > m.base ? "up" : "down"; };
 const moveDot = leg => { const m = day(leg); return m && m.moves > (m.base !== leg.price ? 1 : 0) ? `<span class="movedot"></span>` : ""; };
 
+// Cheapest round trip card: its own Nonstop/Best switch and dates; rtAirport "" any, "same" both
+// ways, "dep" same departure, "dest" same destination; rtNoBag skips unpriced-bag airlines.
+// Its own From/To airports are ap.rtFrom / ap.rtTo.
 let rtBest = false, rtOut = "", rtBack = "";
-let rtAirport = "", rtNoBag = false;  // the box's own From/To airports are ap.rtFrom / ap.rtTo  // "" any, "same" both ways, "dep" same departure, "dest" same destination; skip unpriced-bag airlines
+let rtAirport = "", rtNoBag = false;
 // Checkbox dropdown for several airports (user: pick more than one). picked = [] means all.
 // It stays open while boxes are ticked (the page redraws) and closes on a tap outside.
 let openMsel = null;
@@ -163,7 +166,7 @@ document.addEventListener("click", e => {
     openMsel = d.open ? null : d.dataset.msel; return;
   }
   if (openMsel && !e.target.closest(".msel")) closeMsel();
-});  // cheapest round trip card: its own switch and dates
+});
 let sortBest = false;  // false = order by the nonstop fare, true = by the cheapest of the three
 const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
@@ -258,7 +261,8 @@ function table(legs, dir) {
       const i = trip.legs.indexOf(l), on = open === i ? " on" : "";
       if (!l.checked_at) return `<td class="num muted${on}">soon</td>`;
       if (l.price == null) return `<td class="num${on}"><button data-open="${i}" class="${l.last_price != null ? "gone" : "na"}">${l.last_price != null ? "GONE" : "N/A"}</button></td>`;
-      return `<td class="num${prices.length > 1 && l.price === min ? " best" : ""}${on}"><button data-open="${i}" class="${moveClass(l)}" title="${esc(bagNote(l))}">${moveDot(l)}$${l.price}${bagNote(l) ? '<span class="bagflag" aria-label="bag fee not included">*</span>' : ""}</button>${l.skip ? `<span class="gsk">skip $${l.skip.price}</span>` : ""}${l.onestop ? `<span class="gone1">1 stop $${l.onestop.price}</span>` : ""}</td>`;
+      const bag = bagNote(l);
+      return `<td class="num${prices.length > 1 && l.price === min ? " best" : ""}${on}"><button data-open="${i}" class="${moveClass(l)}" title="${esc(bag)}">${moveDot(l)}$${l.price}${bag ? '<span class="bagflag" aria-label="bag fee not included">*</span>' : ""}</button>${l.skip ? `<span class="gsk">skip $${l.skip.price}</span>` : ""}${l.onestop ? `<span class="gone1">1 stop $${l.onestop.price}</span>` : ""}</td>`;
     }).join("")}</tr>`;
   }).join("")}</tbody></table></div>`;
 }
@@ -341,6 +345,7 @@ function airportKey() {
   return `<p class="small muted" style="margin:8px 0 0">Airports: ${named.map(c => `<b>${esc(c)}</b> ${esc(trip.names[c])}`).join(" · ")}</p>`;
 }
 // Google can't add some airlines' bag fees (e.g. Allegiant's carry-on), and flags those fares.
+const unpricedAirlines = () => [...new Set(trip.legs.flatMap(l => Object.keys(l.bagless || {})))].sort();
 function bagNote(l) {
   const bad = Object.entries(l.bagless || {});
   if (!bad.length) return "";
@@ -412,7 +417,7 @@ function roundTripHtml() {
   if (!outDates.length) return "";
   if (!outDates.includes(rtOut)) rtOut = "";
   if (!backDates.includes(rtBack)) rtBack = "";
-  const unpriced = [...new Set(trip.legs.flatMap(l => Object.keys(l.bagless || {})))].sort();
+  const unpriced = unpricedAirlines();
   const skipAir = a => rtNoBag && unpriced.includes(a);
   const codes = [...new Set(one.flatMap(l => [l.o, l.d]))].sort();
   const homes = [...new Set(side(true).map(l => l.o))].sort(), aways = [...new Set(side(true).map(l => l.d))].sort();
@@ -433,7 +438,7 @@ function roundTripHtml() {
             airline: kind === "1 stop" ? l.onestop.airline : kind === "skiplagged" ? l.skip.airline : nsAir, bag: kind === "nonstop" && l.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: l.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
   const apPick = () => mselHtml("rtFrom", homes, ap.rtFrom, trip.names || {}, "From") + mselHtml("rtTo", aways, ap.rtTo, trip.names || {}, "To");
-  const airportPick = () => `<select id="rtAirport" style="font-size:13px;padding:3px 6px" title="Which airports the round trip may use">${[["", "No airport preference"], ["same", "Same airports both ways"], ["dep", "Same departure airport"], ["dest", "Same destination airport"]].map(([v, t]) => `<option value="${v}"${rtAirport === v ? " selected" : ""}>${t}</option>`).join("")}</select>`;
+  const airportPick = () => `<select id="rtAirport" title="Which airports the round trip may use">${[["", "No airport preference"], ["same", "Same airports both ways"], ["dep", "Same departure airport"], ["dest", "Same destination airport"]].map(([v, t]) => `<option value="${v}"${rtAirport === v ? " selected" : ""}>${t}</option>`).join("")}</select>`;
   const bagPick = names => names.length ? `<label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="rtNoBag"${rtNoBag ? " checked" : ""}> Skip airlines Google can't price bags for (${esc(names.join(", "))})</label>` : "";
   // Same airports both ways: Coming back goes from where Going landed, back to where it left.
   // Same departure: Coming back lands where Going left. Same destination: Coming back leaves where Going landed.
@@ -481,8 +486,14 @@ function render() {
     ${!trip.legs.length ? `<div class="card empty"><p class="muted">No flights in this trip yet.</p></div>` : ""}
     ${pick && pick.going ? detail(open) : ""}${table(going, back.length ? "Going" : "Flights")}
     ${pick && !pick.going ? detail(open) : ""}${table(back, "Coming back")}
-    ${trip.legs.some(l => bagNote(l)) ? `<p class="small" style="margin-top:14px;color:var(--up)">* Bag fees aren't included in that price: Google can't price bags for ${esc([...new Set(trip.legs.flatMap(l => Object.keys(l.bagless || {})))].join(", "))}. Check the airline's own site.</p>` : ""}
+    ${trip.legs.some(l => bagNote(l)) ? `<p class="small" style="margin-top:14px;color:var(--up)">* Bag fees aren't included in that price: Google can't price bags for ${esc(unpricedAirlines().join(", "))}. Check the airline's own site.</p>` : ""}
     <p class="small muted" style="margin-top:18px">Tap a fare for times, other airlines, price history and a Google Flights link. Blue "1 stop" = a cheaper fare with one connection. Green: the route's cheapest date. Red or green text: up or down in the last 24 hours; a purple dot means it moved and came back or moved more than once.${trip.skiplagged ? " \"skip\" fares are hidden-city tickets: cheaper, but with rules (tap one to see)." : ""} This page only shows fares; book on the airline's site or Google Flights.</p>`;
+}
+// Redraw without losing each table's sideways scroll position.
+function renderKeepScroll() {
+  const wraps = [...document.querySelectorAll(".tablewrap")].map(w => w.scrollLeft);
+  render();
+  document.querySelectorAll(".tablewrap").forEach((w, i) => { w.scrollLeft = wraps[i] || 0; });
 }
 document.addEventListener("click", e => {
   const b = e.target.closest("button");
@@ -490,9 +501,7 @@ document.addEventListener("click", e => {
   if (b.dataset.sort) {
     const cut = b.dataset.sort.indexOf("|"), dir = b.dataset.sort.slice(0, cut), key = b.dataset.sort.slice(cut + 1);
     sortBy[dir] = sortBy[dir] === key ? null : key;
-    const wraps = [...document.querySelectorAll(".tablewrap")].map(w => w.scrollLeft);  // stay where you were
-    render();
-    document.querySelectorAll(".tablewrap").forEach((w, i) => { w.scrollLeft = wraps[i] || 0; });
+    renderKeepScroll();
     return;
   }
   if (b.dataset.open) { open = +b.dataset.open === open ? null : +b.dataset.open; render(); document.querySelector(".detail")?.scrollIntoView({block: "nearest", behavior: "smooth"}); }
@@ -533,9 +542,7 @@ document.addEventListener("change", e => {
   }
   if (e.target.name === "sortby") {
     sortBest = e.target.value === "best";
-    const wraps = [...document.querySelectorAll(".tablewrap")].map(w => w.scrollLeft);
-    render();
-    document.querySelectorAll(".tablewrap").forEach((w, i) => { w.scrollLeft = wraps[i] || 0; });
+    renderKeepScroll();
     return;
   }
   if (e.target.name === "suWhen") {

@@ -55,15 +55,14 @@ def send_push(title, body, click=None, buttons=None):
 EMAIL_AFTER_PUSH_SECONDS = 15
 
 
-def send(title, body, click=None, thread=None, push_body=None):
+def send(title, body, click=None, thread=None):
     """click: page the push notification's "Open alert" button opens.
     thread: (id, subject, first) to put the email in a shared conversation; the push keeps
-    `title` and the email body starts with it. push_body: different text for the push
-    (price alerts put one word such as UP or DOWN in front of each line); defaults to body."""
+    `title` and the email body starts with it."""
     for channel in (send_push, send_email):
         try:
             if channel is send_push:
-                send_push(title, push_body or body, click)
+                send_push(title, body, click)
                 continue
             if os.environ.get("NTFY_TOPIC"):
                 time.sleep(EMAIL_AFTER_PUSH_SECONDS)

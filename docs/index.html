@@ -410,7 +410,6 @@ td.times{color:var(--muted);font-size:13px}
 <script>
 const OWNER = "israelshenker", REPO = "flight-tracker", WORKFLOW = "check-prices.yml";
 const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
-const SOFT_LIMIT = 400;
 const AIRPORTS = {
   fl: [["FLL","Fort Lauderdale"],["DJT","Palm Beach"],["MIA","Miami"],["MCO","Orlando"],["SFB","Sanford"],["RSW","Fort Myers"]],
   ny: [["JFK","JFK"],["LGA","LaGuardia"],["EWR","Newark"],["HPN","White Plains"],["ACY","Atlantic City"],["PHL","Philadelphia"],["TTN","Trenton"],["SWF","Newburgh"]]
@@ -509,6 +508,13 @@ async function updateConfig(mutate, message) {
 }
 
 // ---------- data ----------
+// A change-log row (history.csv columns) as an object; rows grouped by route key, oldest first.
+const histRow = r => ({at: r[0], o: r[1], d: r[2], dep: r[3], ret: r[4], price: r[5] ? Math.round(+r[5]) : null, airline: r[6], opts: r[7] || ""});
+function groupLog(rows) {
+  const log = {};
+  for (const h of rows) (log[keyOf(h.o, h.d, h.dep, h.ret, h.opts)] ||= []).push(h);
+  return log;
+}
 function parseCSV(text) {
   const rows = []; let row = [], field = "", q = false;
   for (let i = 0; i < text.length; i++) {
@@ -547,10 +553,7 @@ async function loadAll() {
   if (!Array.isArray(config.watches)) config.watches = [];
   latest = lt ? JSON.parse(lt) : {};
   history = [];
-  if (hist) for (const r of parseCSV(hist).slice(1)) {
-    if (r.length < 7) continue;
-    history.push({at: r[0], o: r[1], d: r[2], dep: r[3], ret: r[4], price: r[5] ? Math.round(+r[5]) : null, airline: r[6], opts: r[7] || ""});
-  }
+  if (hist) history = parseCSV(hist).slice(1).filter(r => r.length >= 7).map(histRow);
   state = st ? JSON.parse(st) : {};
   alerts = al ? JSON.parse(al) : [];
   subscribers = sb ? JSON.parse(sb) : {subs: {}};
@@ -577,7 +580,7 @@ function parseOpts(code = "") {
 }
 const flightLabel = f => f ? `${f.slice(0, 2)} ${f.slice(2)}` : "";
 const hourLabel = h => h === 0 || h === 24 ? "midnight" : h === 12 ? "noon" : `${h % 12} ${h < 12 ? "AM" : "PM"}`;
-const timeLabel = hhmm => { const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+const timeLabel = hhmm => { if (!hhmm) return ""; const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
 function optTags(code) {
   const o = parseOpts(code), t = [];
   if (o.carry_on) t.push("Carry-on");
@@ -602,7 +605,7 @@ function googleLink(w) {
 function ticketLink(w, h) {
   const o = parseOpts(optsCode(w));
   return googleSearchLink({depart: w.depart, from: w.origin, to: h.final, stops: h.stops || 1, via: [w.dest, ...(h.via || [])],
-    airlines: h.flights?.[0] ? [h.flights[0].slice(0, 2)] : [], timeFrom: +h.departs.slice(0, 2), timeTo: +h.departs.slice(0, 2) + 1, carry: o.carry_on, checked: 0, adults: o.adults});
+    airlines: h.flights?.[0] ? [h.flights[0].slice(0, 2)] : [], timeFrom: +(h.departs || "0").slice(0, 2), timeTo: +(h.departs || "0").slice(0, 2) + 1, carry: o.carry_on, checked: 0, adults: o.adults});
 }
 // Every flight with at most one stop on this route, same bags, times and passengers — not
 // narrowed to the airline or the connection we found, so all the options show (user's request).
@@ -611,93 +614,72 @@ function oneStopLink(w) {
   return googleSearchLink({depart: w.depart, ret: w.return, from: w.origin, to: w.dest, stops: 1, via: [],
     airlines: [], timeFrom: o.time_from, timeTo: o.time_to, carry: o.carry_on, checked: o.checked, adults: o.adults});
 }
-// Google Flights' booking page for ONE exact flight ("B6306" on the route's date), with the
-// route's passengers and bags: it lists the airline's fares with a Continue button that opens
-// the airline's own checkout with that flight picked. Booked with the airline 7+ days out,
-// any fare can be cancelled for a full refund within 24 hours.
-function bookLink(w, flight) {
-  const m = /^([A-Z0-9]{2})(\d+)$/.exec(flight || "");
-  if (!m) return null;
-  const o = parseOpts(optsCode(w)), bytes = [];
-  const varint = (n, out) => { while (n > 127) { out.push((n & 127) | 128); n >>>= 7; } out.push(n); };
-  const field = (num, data, out) => { varint(num << 3 | 2, out); varint(data.length, out); out.push(...data); };
-  const int = (num, v, out) => { varint(num << 3, out); varint(v, out); };
-  const str = x => [...new TextEncoder().encode(x)];
-  const seg = [], d = [], a = [], b = [];
-  field(1, str(w.origin), seg); field(2, str(w.depart), seg); field(3, str(w.dest), seg); field(5, str(m[1]), seg); field(6, str(m[2]), seg);
-  field(2, str(w.depart), d); field(4, seg, d);
-  field(2, str(w.origin), a); field(13, a, d);
-  field(2, str(w.dest), b); field(14, b, d);
-  int(5, 0, d);
-  field(3, d, bytes);
-  for (let i = 0; i < (o.adults || config.adults || 1); i++) int(8, 1, bytes);
-  int(9, 1, bytes);
-  if (o.carry_on || o.checked) { const bg = []; if (o.carry_on) int(2, o.carry_on, bg); if (o.checked) int(3, o.checked, bg); field(13, bg, bytes); }
-  int(19, 2, bytes);
-  return `https://www.google.com/travel/flights/booking?tfs=${encodeURIComponent(btoa(String.fromCharCode(...bytes)))}&hl=en&curr=USD`;
-}
-// Google Flights' booking page for a round trip on two exact flights: one ticket, so both must be
-// on the same airline and the return must reverse the route. legs: [{from, to, date, flight}].
-function roundTripBookLink(legs, adults, carry, checked) {
+// Google Flights' `tfs` parameter, for search pages and booking pages. legs: [{date, from, to,
+// flight ("B6306": one exact flight, booking page), stops, airlines, via, timeFrom, timeTo}];
+// two legs = a round trip. Same encoding as google_flights.build_tfs in the tracker.
+function flightsUrl(page, legs, {adults, carry, checked}) {
   const bytes = [];
   const varint = (n, out) => { while (n > 127) { out.push((n & 127) | 128); n >>>= 7; } out.push(n); };
   const field = (num, data, out) => { varint(num << 3 | 2, out); varint(data.length, out); out.push(...data); };
   const int = (num, v, out) => { varint(num << 3, out); varint(v, out); };
   const str = x => [...new TextEncoder().encode(x)];
   for (const l of legs) {
-    const m = /^([A-Z0-9]{2})(\d+)$/.exec(l.flight || "");
-    if (!m) return null;
-    const seg = [], d = [], a = [], b = [];
-    field(1, str(l.from), seg); field(2, str(l.date), seg); field(3, str(l.to), seg); field(5, str(m[1]), seg); field(6, str(m[2]), seg);
-    field(2, str(l.date), d); field(4, seg, d);
-    field(2, str(l.from), a); field(13, a, d);
-    field(2, str(l.to), b); field(14, b, d);
-    int(5, 0, d);
+    const d = [];
+    field(2, str(l.date), d);
+    if (l.flight) {
+      const seg = [];
+      field(1, str(l.from), seg); field(2, str(l.date), seg); field(3, str(l.to), seg); field(5, str(l.flight.slice(0, 2)), seg); field(6, str(l.flight.slice(2)), seg);
+      field(4, seg, d);
+    }
+    const a = []; field(2, str(l.from), a); field(13, a, d);
+    const b = []; field(2, str(l.to), b); field(14, b, d);
+    int(5, l.stops || 0, d);
+    for (const code of l.airlines || []) field(6, str(code), d);
+    for (const code of l.via || []) field(15, str(code), d);
+    if (l.timeFrom > 0) int(8, l.timeFrom, d);
+    if (l.timeTo < 24) int(9, l.timeTo, d);
     field(3, d, bytes);
   }
   for (let i = 0; i < (adults || 1); i++) int(8, 1, bytes);
   int(9, 1, bytes);
   if (carry || checked) { const bg = []; if (carry) int(2, carry, bg); if (checked) int(3, checked, bg); field(13, bg, bytes); }
-  int(19, 1, bytes);
-  return `https://www.google.com/travel/flights/booking?tfs=${encodeURIComponent(btoa(String.fromCharCode(...bytes)))}&hl=en&curr=USD`;
+  int(19, legs.length > 1 ? 1 : 2, bytes);
+  return `https://www.google.com/travel/flights/${page}?tfs=${encodeURIComponent(btoa(String.fromCharCode(...bytes)))}&hl=en&curr=USD`;
 }
-// The cheapest flight on a route (one-way only), for the "Book" link.
-function cheapestFlight(cur) {
-  const f = (cur?.flights || []).filter(x => x.flight).sort((x, y) => x.price - y.price || x.departs.localeCompare(y.departs))[0];
-  return f && f.price === cur.price ? f : null;
+const FLIGHT_NO = /^[A-Z0-9]{2}\d+$/;
+// Google Flights' booking page for ONE exact flight ("B6306" on the route's date), with the
+// route's passengers and bags: it lists the airline's fares with a Continue button that opens
+// the airline's own checkout with that flight picked. Booked with the airline 7+ days out,
+// any fare can be cancelled for a full refund within 24 hours.
+function bookLink(w, flight) {
+  if (!FLIGHT_NO.test(flight || "")) return null;
+  const o = parseOpts(optsCode(w));
+  return flightsUrl("booking", [{date: w.depart, from: w.origin, to: w.dest, flight}], {adults: o.adults || config.adults, carry: o.carry_on, checked: o.checked});
+}
+// Google Flights' booking page for a round trip on two exact flights: one ticket, so both must be
+// on the same airline and the return must reverse the route. legs: [{from, to, date, flight}].
+function roundTripBookLink(legs, adults, carry, checked) {
+  if (!legs.every(l => FLIGHT_NO.test(l.flight || ""))) return null;
+  return flightsUrl("booking", legs, {adults, carry, checked});
+}
+// The cheapest flight with a flight number: on the route at its lowest fare (for the "Book"
+// link), or of one airline when `airline` is given.
+function cheapestFlight(cur, airline) {
+  const f = (cur?.flights || []).filter(x => x.flight && (!airline || x.airline === airline))
+    .sort((x, y) => x.price - y.price || (x.departs || "").localeCompare(y.departs || ""))[0];
+  return airline ? f || null : f && f.price === cur.price ? f : null;
 }
 function googleSearchLink(q) {
-  const o = {time_from: q.timeFrom || 0, time_to: q.timeTo ?? 24, carry_on: q.carry || 0, checked: q.checked || 0}, bytes = [];
-  const varint = (n, out) => { while (n > 127) { out.push((n & 127) | 128); n >>>= 7; } out.push(n); };
-  const field = (num, data, out) => { varint(num << 3 | 2, out); varint(data.length, out); out.push(...data); };
-  const int = (num, v, out) => { varint(num << 3, out); varint(v, out); };
-  const str = x => [...new TextEncoder().encode(x)];
-  const leg = (date, from, to, hours) => {
-    const d = [];
-    field(2, str(date), d);
-    const a = []; field(2, str(from), a); field(13, a, d);
-    const b = []; field(2, str(to), b); field(14, b, d);
-    int(5, hours ? q.stops : 0, d);
-    if (hours) for (const code of q.airlines) field(6, str(code), d);
-    if (hours) for (const code of q.via) field(15, str(code), d);
-    if (hours && o.time_from > 0) int(8, o.time_from, d);
-    if (hours && o.time_to < 24) int(9, o.time_to, d);
-    field(3, d, bytes);
-  };
-  leg(q.depart, q.from, q.to, true);
-  if (q.ret) leg(q.ret, q.to, q.from, false);
-  for (let i = 0; i < (q.adults || config.adults || 1); i++) int(8, 1, bytes);
-  int(9, 1, bytes);
-  if (o.carry_on || o.checked) { const bg = []; if (o.carry_on) int(2, o.carry_on, bg); if (o.checked) int(3, o.checked, bg); field(13, bg, bytes); }
-  int(19, q.ret ? 1 : 2, bytes);
-  return `https://www.google.com/travel/flights/search?tfs=${encodeURIComponent(btoa(String.fromCharCode(...bytes)))}&hl=en&curr=USD`;
+  const legs = [{date: q.depart, from: q.from, to: q.to, stops: q.stops, airlines: q.airlines, via: q.via, timeFrom: q.timeFrom || 0, timeTo: q.timeTo ?? 24}];
+  if (q.ret) legs.push({date: q.ret, from: q.to, to: q.from});
+  return flightsUrl("search", legs, {adults: q.adults || config.adults, carry: q.carry || 0, checked: q.checked || 0});
 }
 const todayEastern = () => new Intl.DateTimeFormat("en-CA", {timeZone: "America/New_York"}).format(new Date());
 function niceDate(iso) {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-US", {weekday: "short", month: "short", day: "numeric"});
 }
-const when = s => new Date(s).toLocaleString("en-US", {timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+const when = (s, weekday) => new Date(s).toLocaleString("en-US", {timeZone: "America/New_York", ...(weekday ? {weekday: "short"} : {}), month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
 function ago(s) {
   const m = Math.round((Date.now() - new Date(s)) / 60000);
   if (m < 1) return "just now";
@@ -777,7 +759,6 @@ function compareHtml(watches) {
     rows.set(`${w.origin}-${w.dest}`, r);
   }
   if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
-  const airports = [...new Set([...rows.keys()].flatMap(k => k.split("-")))].sort();
   const froms = [...new Set([...rows.keys()].map(k => k.split("-")[0]))].sort(), tos = [...new Set([...rows.keys()].map(k => k.split("-")[1]))].sort();
   ap.from = ap.from.filter(a => froms.includes(a)); ap.to = ap.to.filter(a => tos.includes(a));
   for (const k of [...rows.keys()]) { const [o, d] = k.split("-"); if (!apOk(ap.from, o) || !apOk(ap.to, d)) rows.delete(k); }
@@ -822,7 +803,7 @@ function compareHtml(watches) {
           if (c.na && c.gone) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="gone" title="${esc(`Had nonstop fares${c.gone.at ? " until " + when(c.gone.at) : ""} (last $${c.gone.price}${c.gone.low ? `, lowest $${c.gone.low}` : ""}); none found on the latest check`)}">GONE</a>${c.gone.price != null ? `<span class="wasprice">$${c.gone.price}</span>` : ""}</td>`;
           if (c.na) return `<td class="num"><a href="#r=${encodeURIComponent(c.key)}" class="na" title="Tracked, but no nonstop flights were found on the latest check">N/A</a></td>`;
           const sk = c.skip && c.skip < c.price ? c.skip : null;
-          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" data-open-route="${esc(c.key)}" title="${esc([c.airline, c.tip, c.bag].filter(Boolean).join(" · "))}" class="${c.cls.trim()}">${c.dot}$${c.price}${c.bag ? '<span class="bagflag">*</span>' : ""}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}${c.one && c.one < c.price ? `<span class="gone1">1 stop $${c.one}</span>` : ""}</td>`;
+          return `<td class="num${many && c.price === min ? " best" : ""}"><a href="#r=${encodeURIComponent(c.key)}" title="${esc([c.airline, c.tip, c.bag].filter(Boolean).join(" · "))}" class="${c.cls.trim()}">${c.dot}$${c.price}${c.bag ? '<span class="bagflag">*</span>' : ""}</a>${sk ? `<span class="gsk${manySkips && sk === skipMin ? " best" : ""}">skip $${sk}</span>` : ""}${c.one && c.one < c.price ? `<span class="gone1">1 stop $${c.one}</span>` : ""}</td>`;
         }).join("")}</tr>`;
       }).join("")}</tbody></table></div>`;
   }
@@ -942,11 +923,11 @@ function tripBestHtml() {
     const price = rtBest ? Math.min(nsPrice, oneP, skipP) : nsPrice;
     if (!isFinite(price)) return null;
     const kind = price === nsPrice ? "nonstop" : price === oneP ? "1 stop" : "skiplagged";
-    const fl = (cur.flights || []).filter(f => f.flight && f.airline === nsAir).sort((x, y) => x.price - y.price || x.departs.localeCompare(y.departs))[0];
+    const fl = cheapestFlight(cur, nsAir);
     const book = kind === "nonstop" ? (fl && bookLink(w, fl.flight)) || googleLink(w) : kind === "1 stop" ? oneStopLink(w) : null;
     const po = parseOpts(optsCode(w));
     const departs = kind === "nonstop" ? fl?.departs || cur.times?.[nsAir]?.[0] : kind === "1 stop" ? one.departs : skip.departs;
-    return {w, book, departs, flight: kind === "nonstop" ? fl?.flight : null, carry: po.carry_on, checked: po.checked, dep: w.depart, from: w.origin, to: w.dest, price, pax: parseOpts(optsCode(w)).adults || config.adults || 1, kind,
+    return {w, book, departs, flight: kind === "nonstop" ? fl?.flight : null, carry: po.carry_on, checked: po.checked, dep: w.depart, from: w.origin, to: w.dest, price, pax: po.adults || config.adults || 1, kind,
             airline: kind === "1 stop" ? one.airline : kind === "skiplagged" ? skip.airline : nsAir, bag: kind === "nonstop" && cur.bagless?.[nsAir] ? bagNote({bagless: {[nsAir]: cur.bagless[nsAir]}}) : ""};
   }).filter(Boolean);
   const apPick = () => mselHtml("rtFrom", homes, ap.rtFrom, CITY, "From") + mselHtml("rtTo", aways, ap.rtTo, CITY, "To");
@@ -968,7 +949,7 @@ function tripBestHtml() {
     : `<div class="small muted" style="margin-top:6px">Book the two flights separately (${out.kind !== "nonstop" || back.kind !== "nonstop" ? "not both nonstop" : out.flight?.slice(0, 2) !== back.flight?.slice(0, 2) ? "different airlines" : back.from !== out.to || back.to !== out.from ? "different airports" : "no flight numbers"}, so not one round-trip ticket).</div>`;
   const pick = (id, dates, val) => `<select id="${id}" style="font-size:13px;padding:3px 6px"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
   const leg = (x, label, sel) => `<div class="cline" style="gap:8px;flex-wrap:wrap;white-space:normal"><span class="tag">${label}</span>${sel}${x
-    ? `<a href="#r=${encodeURIComponent(wKey(x.w))}" data-open-route="${esc(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
+    ? `<a href="#r=${encodeURIComponent(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
       <span class="muted small">${esc(niceDate(x.w.depart))}${x.departs ? ` · ${esc(timeLabel(x.departs))}` : ""}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>${x.book ? ` <a class="small" href="${esc(x.book)}" target="_blank" rel="noopener noreferrer">Book ↗</a>` : ""}`
     : `<span class="muted small">no fare with these choices</span>`}</div>`;
   return `<div class="card" style="border-color:var(--accent)">
@@ -1047,9 +1028,8 @@ function renderTripList() {
     ${(() => {
       const subs = Object.values(subscribers.subs || {}).filter(x => x.trip === t.id);
       if (!subs.length) return "";
-      const hr = h => h === 0 ? "midnight" : h === 12 ? "noon" : `${h % 12} ${h < 12 ? "AM" : "PM"}`;
       const days = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
-      return `<div class="small" style="margin:6px 0"><b>Email updates</b> (signed up on the trip page)${subs.map(x => `<div class="inline small" style="margin-top:4px"><span>${esc(x.email)} · ${x.schedule === "changes" ? "when prices change" : x.schedule === "daily" ? `daily at ${hr(x.hour)}` : `${days[x.day]} at ${hr(x.hour)}`}</span>
+      return `<div class="small" style="margin:6px 0"><b>Email updates</b> (signed up on the trip page)${subs.map(x => `<div class="inline small" style="margin-top:4px"><span>${esc(x.email)} · ${x.schedule === "changes" ? "when prices change" : x.schedule === "daily" ? `daily at ${hourLabel(x.hour)}` : `${days[x.day]} at ${hourLabel(x.hour)}`}</span>
         <label><input type="checkbox" data-trip-unsub="${i}" value="${esc(x.id)}"${(t.remove_subs || []).includes(x.id) ? " checked" : ""}> Remove</label></div>`).join("")}</div>`;
     })()}
     ${t.share ? `<div class="sharelink"><input type="text" readonly value="${esc(shareLink(t))}"><button class="link small" data-trip-copy="${i}">Copy link</button><button class="link small" data-trip-newlink="${i}" title="Makes a new link; the old one stops working after the next check">New link</button></div>
@@ -1210,8 +1190,6 @@ const openHistory = new Set();  // keep opened "Price history" sections open acr
 // Days and route cards start collapsed every time the page opens (user's choice); what's opened
 // stays open only until the page is reloaded.
 const folded = {openRoutes: new Set(), openDays: new Set()};
-try { localStorage.removeItem("folded"); } catch {}  // older versions remembered opened ones
-function saveFolded() {}
 document.addEventListener("toggle", e => {
   const k = e.target.dataset?.key;
   if (k) e.target.open ? openHistory.add(k) : openHistory.delete(k);
@@ -1294,6 +1272,13 @@ function moveTitle(cur, w) {
 }
 // Had nonstop fares before, none on the latest check.
 const isGone = cur => cur && cur.price == null && (cur.last_price != null || cur.low != null);
+// A route's tags: bags/times/passengers, its alert and booking settings (with alerts on), its trips.
+function tagsHtml(w, cur, alerts = true) {
+  const target = alerts && targetFor(w);
+  return [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(target && w.book ? ["One-click booking"] : []),
+    ...(alerts && w.no_skiplagged ? ["No skiplagged"] : []), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
+    .map(t => `<span class="tag${t.startsWith("Alert") && cur?.price < target ? " hit" : ""}${t.startsWith("Trip: ") ? " trip" : ""}">${esc(t)}</span>`).join("");
+}
 function goneInfo(key, cur) {
   let price = cur.last_price ?? null, at = cur.last_seen_at ?? null;
   if (price == null) {  // saved before last_price existed: use the change log
@@ -1317,8 +1302,7 @@ const skipFare = (cur, w) => !(cur?.hidden?.international && !isInternational(w.
 
 function render() {
   const all = tracked(), watches = filterByTrip(all);
-  const log = {};  // key -> change-log rows, oldest first
-  for (const h of history) (log[keyOf(h.o, h.d, h.dep, h.ret, h.opts)] ||= []).push(h);
+  const log = groupLog(history);  // key -> change-log rows, oldest first
 
   const warns = [];
   const errs = state.last_run?.errors || [];
@@ -1357,7 +1341,7 @@ function render() {
   } else {
     html = `<div class="toolbar">${backToAlert ? `<button class="link small" data-back-alert="1">‹ Back to alert</button>` : ""}<button class="link small" data-recent-alerts="1">Recent alerts</button><button class="link small" data-archived="1">Archived</button><button class="link small" data-compare="1">${compareMode ? "List view" : "Calendar view"}</button><button class="link small" data-select-mode="1">Select routes</button>${compareMode ? "" : `<button class="link small" data-fold-page="${anyOpen ? "collapse" : "expand"}">${anyOpen ? "Collapse all" : "Expand all dates"}</button>`}</div>${tripFilterHtml()}`;
   }
-  for (const [g, ws] of groups) {
+  for (const [g, ws] of compareMode && !selectMode ? [] : groups) {  // the calendar replaces the list
     const [dep, ret] = g.split("|");
     const title = niceDate(dep) + (ret ? `, returning ${niceDate(ret)}` : "");
     const priced = [], none = [], pending = [], gone = [];
@@ -1392,31 +1376,15 @@ function render() {
     }
 
     for (const {w, cur} of priced) {
-      const k = wKey(w);
+      const k = wKey(w), tags = tagsHtml(w, cur);
       if (selectMode || !folded.openRoutes.has(k)) {
-        const target = targetFor(w);
-        const tags = [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(target && w.book ? ["One-click booking"] : []), ...(w.no_skiplagged ? ["No skiplagged"] : []), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
-          .map(t => `<span class="tag${t.startsWith("Alert") && cur.price < target ? " hit" : ""}${t.startsWith("Trip: ") ? " trip" : ""}">${esc(t)}</span>`).join("");
-
         html += `<article class="card compact"><div class="cline">
           ${selectMode ? `<input type="checkbox" class="sel" data-sel="${esc(k)}" aria-label="Select ${esc(w.origin)} to ${esc(w.dest)}"${selected.has(k) ? " checked" : ""}>` : `<button class="fold" data-fold="${esc(k)}" aria-expanded="false" title="Show details">▸</button>`}<span class="route">${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</span>
           <span class="rest" title="${esc(cheapestFlights(cur))}">${tags}${cheapestShort(cur).replace('class="oneline"', 'class="flights"')}</span>${skipFare(cur, w) ? `<span class="skip">skiplagged $${skipFare(cur, w).price}</span>` : ""}${oneFare(cur, w) ? `<span class="stop1">1 stop $${oneFare(cur, w).price}</span>` : ""}${oneWays(cur) ? `<span class="skip ow">2 one-ways $${oneWays(cur).total}</span>` : ""}<span class="price${moveClass(cur)}" title="${esc(moveTitle(cur, w))}">${moveDot(cur)}$${cur.price}</span>
         </div></article>`;
         continue;
       }
-      // Replay the change log: each airline's fare over time, and the route's lowest fare over time.
-      const fares = {}, lows = [], changes = [];
-      let lastAt = null;
-      for (const r of routeLog(w, log)) {
-        if (r.marker) { for (const a in fares) delete fares[a]; changes.push(r); continue; }
-        if (r.airline && r.price != null) fares[r.airline] = r.price;
-        else if (r.airline) delete fares[r.airline];  // that airline dropped out
-        else for (const a in fares) delete fares[a];
-        if (r.at !== lastAt) { lows.push(null); lastAt = r.at; }
-        const vals = Object.values(fares);
-        lows[lows.length - 1] = vals.length ? Math.min(...vals) : null;
-        changes.push(r);
-      }
+      const {lows, changes} = replayLog(w, log);  // each airline's fare and the lowest fare over time
       const seen = lows.filter(p => p != null);
       const first = seen[0], firstAt = changes.find(r => !r.marker && r.price != null)?.at;
       // Two periods, labeled: the last 24 hours (matches the price color) and since tracking began.
@@ -1427,12 +1395,6 @@ function render() {
       const lowHigh = seen.length ? `Low $${Math.min(...seen, cur.price)} · High $${Math.max(...seen, cur.price)}` : "";
       const airlines = Object.entries(cur.airlines || {}).sort((a, b) => a[1] - b[1])
         .map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td><td class="times">${esc((cur.times?.[a] || []).map(timeLabel).join(", "))}</td></tr>`).join("");
-      const target = targetFor(w);
-      const tags = [...optTags(optsCode(w)), ...(target ? [`Alert below $${target}`] : []), ...(target && w.book ? ["One-click booking"] : []), ...(w.no_skiplagged ? ["No skiplagged"] : []), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
-        .map(t => `<span class="tag${t.startsWith("Alert") && cur.price < target ? " hit" : ""}${t.startsWith("Trip: ") ? " trip" : ""}">${esc(t)}</span>`).join("");
-      const rows = changes.slice().reverse().map(r => r.marker
-        ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed${r.marker ? ` (was: ${esc(r.marker)})` : ""}</i></td></tr>`
-        : `<tr><td>${esc(when(r.at))}</td><td>${r.airline ? esc(r.airline) : "—"}</td><td class="num">${r.price != null ? "$" + r.price : r.airline ? "no longer offered" : "no nonstops"}</td></tr>`).join("");
       html += `<article class="card">
         <div class="top">
           <div><div class="route"><button class="fold" data-fold="${esc(k)}" aria-expanded="true" title="Show just the lowest fare">▾</button>${esc(w.origin)} <span class="arrow">→</span> ${esc(w.dest)}</div>
@@ -1462,14 +1424,14 @@ function render() {
           <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="stop" data-edit="${esc(k)}">Edit bags, times, alert</button><button class="stop" data-stop="${esc(k)}">Stop tracking</button></span></div>
         ${cur.flights?.length && !parseOpts(optsCode(w)).flight ? `<details><summary>All ${cur.flights.length} nonstop flight${cur.flights.length > 1 ? "s" : ""}</summary><div class="tablewrap"><table>
           <thead><tr><th>Departs</th><th>Flight</th><th class="num">Fare</th><th></th></tr></thead><tbody>${cur.flights.map(f => {
-            const tracked_ = tracked().some(x => x.origin === w.origin && x.dest === w.dest && x.depart === w.depart && (x.return || "") === (w.return || "") && parseOpts(optsCode(x)).flight === f.flight && !!x.carry_on === !!w.carry_on && +(x.checked || 0) === +(w.checked || 0));
+            const tracked_ = all.some(x => x.origin === w.origin && x.dest === w.dest && x.depart === w.depart && (x.return || "") === (w.return || "") && parseOpts(optsCode(x)).flight === f.flight && !!x.carry_on === !!w.carry_on && +(x.checked || 0) === +(w.checked || 0));
             const u = !w.return && bookLink(w, f.flight);
             return `<tr><td>${esc(timeLabel(f.departs))}</td><td>${esc(f.airline)} ${esc(flightLabel(f.flight))}${u ? ` <a class="small" href="${u}" target="_blank" rel="noopener">Book ↗</a>` : ""}</td><td class="num">$${f.price}</td><td style="text-align:right">${!f.flight ? "" : tracked_ ? '<span class="muted small">tracked</span>' : `<button class="stop" data-track-flight="${esc(k)}|${esc(f.flight)}">Track this flight</button>`}</td></tr>`;
           }).join("")}</tbody></table></div>
           <div class="muted small">Tracking a flight adds it as its own card with the same bags, its own fare history and alerts.</div></details>` : ""}
         <details data-key="${esc(k)}"${openHistory.has(k) ? " open" : ""}><summary>Price history</summary><div class="tablewrap"><table>
           <thead><tr><th>Changed (Eastern)</th><th>Airline</th><th class="num">New fare</th></tr></thead>
-          <tbody>${rows}</tbody></table></div>
+          <tbody>${historyRows(changes)}</tbody></table></div>
           <div class="muted small">Only changes are listed; the tracker checks every hour.</div></details>
       </article>`;
     }
@@ -1484,11 +1446,7 @@ function render() {
       const seen = lows.filter(p => p != null);
       const airlines = Object.entries(lastFares).sort((a, b) => a[1] - b[1])
         .map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td></tr>`).join("");
-      const tags = [...optTags(optsCode(w)), ...(w.trips || []).map(id => "Trip: " + tripName(id)).filter(t => t !== "Trip: ")]
-        .map(t => `<span class="tag${t.startsWith("Trip: ") ? " trip" : ""}">${esc(t)}</span>`).join("");
-      const rows = changes.slice().reverse().map(r => r.marker
-        ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed${r.marker ? ` (was: ${esc(r.marker)})` : ""}</i></td></tr>`
-        : `<tr><td>${esc(when(r.at))}</td><td>${r.airline ? esc(r.airline) : "—"}</td><td class="num">${r.price != null ? "$" + r.price : r.airline ? "no longer offered" : "no nonstops"}</td></tr>`).join("");
+      const tags = tagsHtml(w, cur, false), rows = historyRows(changes);
       const h = skipFare(cur, w);
       html += `<article class="card">
         <div class="top">
@@ -1514,12 +1472,11 @@ function render() {
     });
     html += chipList(none, "No nonstop flights found (checked once a day)", true);
   }
-  if (compareMode && !selectMode) html = html.slice(0, html.indexOf("</div>") + 6) + tripFilterHtml() + compareHtml(watches);
+  if (compareMode && !selectMode) html += compareHtml(watches);
   if (alertView && !selectMode) { const end = html.indexOf("</div>") + 6; html = html.slice(0, end) + alertHtml() + html.slice(end); }
   else if (archiveView && !selectMode) { const end = html.indexOf("</div>") + 6; html = html.slice(0, end) + archiveHtml(); }  // archive replaces the routes below
   $("list").innerHTML = html;
   topScrollbars();
-  renderViewSwitch();
   for (const box of document.querySelectorAll("[data-partial]")) box.indeterminate = true;
   $("selBar").hidden = !selectMode;
   if (selectMode) {
@@ -1545,8 +1502,7 @@ function topScrollbars() {
     bar.className = "topscroll";
     bar.innerHTML = `<div style="width:${wrap.scrollWidth}px"></div>`;
     wrap.parentNode.insertBefore(bar, wrap);
-    let busy = false;
-    const sync = (from, to) => { if (busy) return; busy = true; to.scrollLeft = from.scrollLeft; busy = false; };
+    const sync = (from, to) => { to.scrollLeft = from.scrollLeft; };
     bar.scrollLeft = wrap.scrollLeft;
     bar.addEventListener("scroll", () => sync(bar, wrap));
     wrap.addEventListener("scroll", () => sync(wrap, bar));
@@ -1696,10 +1652,11 @@ function chosenOptions() {
   if (+$("optAdults").value) opts.adults = +$("optAdults").value;
   return opts;
 }
-for (const id of ["optFrom", "editFrom"])
-  $(id).innerHTML = Array.from({length: 24}, (_, h) => `<option value="${h}">${h ? hourLabel(h) : "Earliest (any)"}</option>`).join("");
-for (const id of ["optTo", "editTo"])
-  $(id).innerHTML = Array.from({length: 24}, (_, i) => i + 1).map(h => `<option value="${h}"${h === 24 ? " selected" : ""}>${h === 24 ? "Latest (any)" : hourLabel(h)}</option>`).join("");
+// Hour lists for "leaving between": From 0 (any) to 11 PM, To 1 AM to 24 (any).
+const fromHours = Array.from({length: 24}, (_, h) => `<option value="${h}">${h ? hourLabel(h) : "Earliest (any)"}</option>`).join("");
+const toHours = pick24 => Array.from({length: 24}, (_, i) => i + 1).map(h => `<option value="${h}"${pick24 && h === 24 ? " selected" : ""}>${h === 24 ? "Latest (any)" : hourLabel(h)}</option>`).join("");
+for (const id of ["optFrom", "editFrom"]) $(id).innerHTML = fromHours;
+for (const id of ["optTo", "editTo"]) $(id).innerHTML = toHours(true);
 
 // ---------- edit a tracked route ----------
 let editingKey = null;
@@ -1787,7 +1744,6 @@ function updateAddCount() {
   const already = +$("optBelow").value > 0 ? newWatches(true).length - n : 0;
   $("addCount").innerHTML = n || already
     ? [n ? `Adds <b>${n}</b> route/date${n > 1 ? "s" : ""} · ${total} total` : "", already ? `sets the price alert on ${already} already tracked` : ""].filter(Boolean).join(" · ")
-      + ""
     : `<span class="muted">Pick a From airport, a To airport and a date</span>`;
 }
 $("addPanel").addEventListener("input", updateAddCount);
@@ -1828,20 +1784,6 @@ function targetFor(w) {
   const found = config.watches.find(x => wKey(x) === k && x.alert_below);
   return found ? +found.alert_below : null;
 }
-function setTarget(key) {
-  const w = tracked().find(x => wKey(x) === key);
-  if (!w) return;
-  const cur = targetFor(w);
-  const answer = prompt(`Alert me when ${w.origin} → ${w.dest} on ${niceDate(w.depart)} drops below this fare ($).\nLeave empty to remove the alert.`, cur ?? "");
-  if (answer === null) return;
-  const value = answer.trim() === "" ? null : Math.round(+answer.replace(/[$,\s]/g, ""));
-  if (value !== null && !(value > 0)) { alert("Enter a dollar amount, like 120."); return; }
-  if (!needToken(() => setTarget(key))) return;
-  save(() => updateConfig(c => {
-    for (const x of c.watches) if (wKey(x) === key) { if (value) x.alert_below = value; else delete x.alert_below; }
-  }, value ? `Alert below $${value} for ${w.origin}-${w.dest} ${w.depart}` : `Remove price alert for ${w.origin}-${w.dest} ${w.depart}`));
-}
-
 // ---------- track one flight ----------
 function trackFlight(spec) {
   const i = spec.lastIndexOf("|"), key = spec.slice(0, i), flight = spec.slice(i + 1);
@@ -1869,10 +1811,8 @@ function toggleSkipDate(dep) {
 }
 
 // ---------- select routes ----------
-for (const [f, t] of [["bulkFrom", "bulkTo"]]) {
-  $(f).innerHTML = `<option value="keep">Keep as is</option>` + Array.from({length: 24}, (_, h) => `<option value="${h}">${h ? hourLabel(h) : "Earliest (any)"}</option>`).join("");
-  $(t).innerHTML = `<option value="keep">Keep as is</option>` + Array.from({length: 24}, (_, i) => i + 1).map(h => `<option value="${h}">${h === 24 ? "Latest (any)" : hourLabel(h)}</option>`).join("");
-}
+$("bulkFrom").innerHTML = `<option value="keep">Keep as is</option>` + fromHours;
+$("bulkTo").innerHTML = `<option value="keep">Keep as is</option>` + toHours(false);
 document.addEventListener("change", e => {
   const t = e.target;
   if (t.dataset.mselAll || t.dataset.mselPick) {  // airport checkbox dropdowns
@@ -2078,24 +2018,23 @@ document.addEventListener("click", e => {
   if (!b || b.disabled) return;
   if (b.id === "btnRefresh") reload();
   else if (b.dataset.stop) stopKeys([b.dataset.stop], "this route");
-  else if (b.dataset.target) setTarget(b.dataset.target);
   else if (b.dataset.edit) openEdit(b.dataset.edit);
-  else if (b.dataset.fold) { const k = b.dataset.fold; folded.openRoutes.has(k) ? folded.openRoutes.delete(k) : folded.openRoutes.add(k); saveFolded(); render(); }
+  else if (b.dataset.fold) { const k = b.dataset.fold; folded.openRoutes.has(k) ? folded.openRoutes.delete(k) : folded.openRoutes.add(k); render(); }
   else if (b.dataset.skipDate) toggleSkipDate(b.dataset.skipDate);
   else if (b.dataset.trackFlight) trackFlight(b.dataset.trackFlight);
   else if (b.dataset.foldPage) {
     folded.openRoutes.clear();
     folded.openDays.clear();
     if (b.dataset.foldPage === "expand") for (const w of tracked()) folded.openDays.add(w.depart + "|" + (w.return || ""));
-    saveFolded(); render();
+    render();
   }
-  else if (b.dataset.foldDay) { const g = b.dataset.foldDay; folded.openDays.has(g) ? folded.openDays.delete(g) : folded.openDays.add(g); saveFolded(); render(); }
+  else if (b.dataset.foldDay) { const g = b.dataset.foldDay; folded.openDays.has(g) ? folded.openDays.delete(g) : folded.openDays.add(g); render(); }
   else if (b.dataset.foldAll) {
     const [dep, ret] = b.dataset.foldAll.split("|");
     const keys = onDay(dep, ret).filter(w => latest[wKey(w)]?.price != null).map(wKey);
     const collapse = !keys.every(k => !folded.openRoutes.has(k));
     for (const k of keys) collapse ? folded.openRoutes.delete(k) : folded.openRoutes.add(k);
-    saveFolded(); render();
+    render();
   }
   else if (b.dataset.stopNone) {
     const [dep, ret] = b.dataset.stopNone.split("|");
@@ -2177,7 +2116,6 @@ async function save(action, msgEl) {
 
 // ---------- start ----------
 // ---------- saved push alerts ----------
-const alertWhen = at => new Date(at).toLocaleString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
 // ---------- archived travel dates (data/archive.json, written by tracker.py archive_past_dates) ----------
 // After a travel date passes, its routes, last fares and change log are kept here instead of deleted.
 function archiveHtml() {
@@ -2190,8 +2128,7 @@ function archiveHtml() {
   }
   const a = archive[archiveView];
   if (!a) return "";
-  const log = {};
-  for (const r of a.history || []) (log[keyOf(r[1], r[2], r[3], r[4], r[7] || "")] ||= []).push({at: r[0], o: r[1], d: r[2], dep: r[3], ret: r[4], price: r[5] ? Math.round(+r[5]) : null, airline: r[6], opts: r[7] || ""});
+  const log = groupLog((a.history || []).map(histRow));
   const cards = a.watches.map(w => ({w, e: a.latest[wKey(w)] || {}}))
     .sort((x, y) => (x.e.price ?? x.e.last_price ?? 1e9) - (y.e.price ?? y.e.last_price ?? 1e9))
     .map(({w, e}) => {
@@ -2241,13 +2178,13 @@ function replayLog(w, log) {
   return {lows, changes, lastFares};
 }
 const historyRows = changes => changes.slice().reverse().map(r => r.marker
-  ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed${r.marker ? ` (was: ${esc(r.marker)})` : ""}</i></td></tr>`
+  ? `<tr><td>${esc(when(r.at))}</td><td colspan="2"><i>Bags/times changed (was: ${esc(r.marker)})</i></td></tr>`
   : `<tr><td>${esc(when(r.at))}</td><td>${r.airline ? esc(r.airline) : "—"}</td><td class="num">${r.price != null ? "$" + r.price : r.airline ? "no longer offered" : "no nonstops"}</td></tr>`).join("");
 function alertHtml() {
   if (alertView === "list") {
     return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Recent alerts</h2><button class="link small" data-close-alert="1">Close</button></div>
       <div class="small muted" style="margin:2px 0 8px">Last 50 kept · newest first</div>${alerts.length ? alerts.map(a => `
-      <button class="alertrow" data-open-alert="${esc(a.id)}"><span><b>${esc(a.title)}</b><span class="small muted" style="display:block">${esc(alertWhen(a.at))}</span></span>
+      <button class="alertrow" data-open-alert="${esc(a.id)}"><span><b>${esc(a.title)}</b><span class="small muted" style="display:block">${esc(when(a.at, true))}</span></span>
         <span class="small muted">${a.items?.length ? a.items.length + " ›" : "›"}</span></button>`).join("") : `<p class="small muted">No alerts saved yet.</p>`}</div>`;
   }
   const a = alerts.find(x => x.id === alertView);
@@ -2266,7 +2203,7 @@ function alertHtml() {
       <span class="price ${it.tone === "up" ? "up" : it.tone === "skip" ? "" : "down"}" style="font-size:18px">$${esc(it.price)}</span></button>`;
   }).join("");
   return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Alert</h2><button class="link small" data-close-alert="1">Close</button></div>
-    <div class="small muted" style="margin:2px 0 8px"><b>${esc(a.title)}</b> · sent ${esc(alertWhen(a.at))}${a.items?.length ? ` · ${a.items.length} change${a.items.length > 1 ? "s" : ""}` : ""}</div>
+    <div class="small muted" style="margin:2px 0 8px"><b>${esc(a.title)}</b> · sent ${esc(when(a.at, true))}${a.items?.length ? ` · ${a.items.length} change${a.items.length > 1 ? "s" : ""}` : ""}</div>
     ${a.text ? `<p style="margin:0 0 6px">${esc(a.text)}</p>` : ""}${a.details ? `<a class="small" href="${esc(a.details)}" target="_blank" rel="noopener">Technical details on GitHub ↗</a>` : ""}
     ${lines}</div>`;
 }
@@ -2306,7 +2243,6 @@ function openRoute(key) {
   compareMode = false;
   folded.openDays.add(w.depart + "|" + (w.return || ""));
   folded.openRoutes.add(key);
-  saveFolded();
   render();
   // Priced routes are cards; N/A and No Longer Available routes are tags in their groups.
   const card = document.querySelector(`details[data-key="${CSS.escape(key)}"]`)?.closest(".card")
