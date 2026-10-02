@@ -419,7 +419,7 @@ const AIRPORTS = {
 
 let token = null;
 try { token = localStorage.getItem("ghToken"); } catch {}
-let archive = {}, archiveView = null;  // past travel dates (data/archive.json); archiveView: "list", a date, or null
+let archive = null, archiveView = null;  // past travel dates (data/archive.json, loaded when Archived is opened); archiveView: "list", a date, or null
 let alerts = [], alertView = null, backToAlert = null;  // saved push alerts; alertView: alert id, "list", or null
 let subscribers = {subs: {}};  // friends signed up for email updates on shared trips (friends.py)
 let config = {watches: []}, history = [], state = {}, latest = {}, lastRun = null, busy = false, loaded = false, lastLoad = 0;
@@ -532,21 +532,24 @@ function parseCSV(text) {
   return rows;
 }
 
+// A data file as saved in the newest commit (dataSha, set by loadAll), from GitHub's file server.
+let dataSha = null;
+async function raw(file) {
+  const res = await fetch(`https://raw.githubusercontent.com/${OWNER}/${REPO}/${dataSha}/${file}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw Object.assign(new Error(`GitHub error ${res.status}`), {status: res.status});
+  return res.text();
+}
 async function loadAll() {
   // One API call for the newest commit, then the files from GitHub's file server, which
   // doesn't count against the API limit (60 an hour for browsers that aren't connected).
-  const sha = (await (await gh("/commits/main", {headers: {Accept: "application/vnd.github.sha"}})).text()).trim();
-  const raw = async file => {
-    const res = await fetch(`https://raw.githubusercontent.com/${OWNER}/${REPO}/${sha}/${file}`);
-    if (res.status === 404) return null;
-    if (!res.ok) throw Object.assign(new Error(`GitHub error ${res.status}`), {status: res.status});
-    return res.text();
-  };
+  dataSha = (await (await gh("/commits/main", {headers: {Accept: "application/vnd.github.sha"}})).text()).trim();
   const vi = await raw("data/vault.json");
   vaultInfo = vi ? JSON.parse(vi) : null;
   await restoreVaultKey();
   if (vaultInfo && !vaultKey) throw Object.assign(new Error("locked"), {locked: true});
-  const [cf, hist, st, lt, al, sb, ar] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json", "data/alerts.json", "data/subscribers.json", "data/archive.json"]
+  // The archive (the biggest file) is left out: it's fetched only when Archived is opened.
+  const [cf, hist, st, lt, al, sb] = await Promise.all(["config.json", "data/history.csv", "data/state.json", "data/latest.json", "data/alerts.json", "data/subscribers.json"]
     .map(async f => { const t = await raw(f); return t == null ? null : openText(t); }));
   config = cf ? JSON.parse(cf) : {watches: []};
   if (!Array.isArray(config.watches)) config.watches = [];
@@ -556,7 +559,7 @@ async function loadAll() {
   state = st ? JSON.parse(st) : {};
   alerts = al ? JSON.parse(al) : [];
   subscribers = sb ? JSON.parse(sb) : {subs: {}};
-  archive = ar ? JSON.parse(ar) : {};
+  archive = null;  // reloaded on demand, from this newer save
   loaded = true;
 }
 
@@ -2007,7 +2010,22 @@ async function save(action, msgEl) {
 // ---------- saved push alerts ----------
 // ---------- archived travel dates (data/archive.json, written by tracker.py archive_past_dates) ----------
 // After a travel date passes, its routes, last fares and change log are kept here instead of deleted.
+let archiveLoading = false;
+async function loadArchive() {
+  archiveLoading = true;
+  try {
+    const t = await raw("data/archive.json");
+    archive = t == null ? {} : JSON.parse(await openText(t));
+  } catch { archive = {failed: true}; }
+  archiveLoading = false;
+  render();
+}
 function archiveHtml() {
+  if (!archive || archive.failed) {
+    if (!archive && !archiveLoading) loadArchive();  // first time it's opened since the page loaded
+    return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Archived</h2><button class="link small" data-close-archive="1">Close</button></div>
+      <p class="small muted">${archive ? "Couldn't load the archive. Check your connection and try again." : "Loading…"}</p></div>`;
+  }
   const dates = Object.keys(archive).sort().reverse();
   if (archiveView === "list") {
     return `<div class="panel alertpanel"><div class="group" style="margin:0"><h2 style="margin:0">Archived</h2><button class="link small" data-close-archive="1">Close</button></div>
@@ -2110,7 +2128,11 @@ document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b || b.disabled) return;
   if (b.dataset.recentAlerts) { alertView = "list"; archiveView = null; backToAlert = null; render(); window.scrollTo({top: 0}); }
-  else if (b.dataset.archived) { archiveView = "list"; alertView = null; backToAlert = null; render(); window.scrollTo({top: 0}); }
+  else if (b.dataset.archived) {
+    archiveView = "list"; alertView = null; backToAlert = null;
+    if (archive?.failed) archive = null;  // try again
+    render(); window.scrollTo({top: 0});
+  }
   else if (b.dataset.openArchive) { archiveView = b.dataset.openArchive; render(); window.scrollTo({top: 0}); }
   else if (b.dataset.closeArchive) { archiveView = null; render(); }
   else if (b.dataset.openAlert) { alertView = b.dataset.openAlert; render(); window.scrollTo({top: 0}); }
