@@ -1234,13 +1234,14 @@ def archive_past_dates(cfg, latest, rows):
         have = {watch_key(w) for w in a["watches"]}
         a["watches"] += [w for k, w in p["watches"].items() if k not in have]
         a["latest"].update(p["latest"])
-        # Only what the page's Archived view shows (per-flight lists and 24-hour trails made the
-        # file grow by ~170 KB a day, and the page downloads all of it).
-        a["latest"] = {k: {f: v for f, v in e.items() if f in ARCHIVE_FIELDS} for k, e in a["latest"].items()}
         a["history"] += [r for r in p["history"] if r not in a["history"]]
         a["trips"].update({i: names[i] for w in a["watches"] for i in w.get("trips", []) if i in names})
         a["archived_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         print(f"  archived {day}: {len(a['watches'])} routes, {len(a['history'])} log rows")
+    # Only what the page's Archived view shows (per-flight lists and 24-hour trails made the
+    # file grow by ~170 KB a day, and the page downloads all of it). Older dates too.
+    for a in archive.values():
+        a["latest"] = {k: {f: v for f, v in e.items() if f in ARCHIVE_FIELDS} for k, e in a["latest"].items()}
     write_json(ARCHIVE, archive)
 
 
