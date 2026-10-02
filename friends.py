@@ -71,7 +71,9 @@ def due(sub, prices, now):
     if not sub.get("last_sent"):
         return "welcome"
     if sub["schedule"] == "changes":
-        return "changes" if prices != sub.get("last_prices") else None
+        # Only a fare that moved or a new fare counts; a date passing or a route removed doesn't.
+        last = sub.get("last_prices") or {}
+        return "changes" if any(k not in last or last[k] != p for k, p in prices.items()) else None
     local = now.astimezone(ZoneInfo(sub.get("tz") or "America/New_York"))
     last = datetime.fromisoformat(sub["last_sent"]).astimezone(local.tzinfo)
     if local.hour < int(sub.get("hour", 8)) or last.date() == local.date():
@@ -135,24 +137,29 @@ def send():
         msgs = []
     added = stopped = 0
     for m in msgs:
-        opened = open_signup(m.get("message", ""), trips)
-        if not opened:
-            continue
-        t, req = opened
-        sid = re.sub(r"[^a-z0-9]", "", str(req.get("id", "")).lower())[:32]
-        if not sid:
-            continue
-        if req.get("a") == "stop":
-            stopped += subs.pop(sid, None) is not None
-        elif req.get("a") == "sub" and EMAIL_RE.match(str(req.get("email", ""))) and req.get("schedule") in SCHEDULES:
-            subs[sid] = {"id": sid, "trip": t["id"], "email": req["email"].strip()[:200], "schedule": req["schedule"],
-                         "hour": max(0, min(23, int(req.get("hour", 8)))), "day": max(0, min(6, int(req.get("day", 0)))),
-                         "tz": str(req.get("tz") or "America/New_York")[:60], "since": now.isoformat(timespec="seconds")}
-            try:
-                ZoneInfo(subs[sid]["tz"])
-            except Exception:
-                subs[sid]["tz"] = "America/New_York"
-            added += 1
+        # A malformed message is skipped; otherwise it would stop every later run here, quietly.
+        try:
+            opened = open_signup(m.get("message", ""), trips)
+            if not opened:
+                continue
+            t, req = opened
+            sid = re.sub(r"[^a-z0-9]", "", str(req.get("id", "")).lower())[:32]
+            if not sid:
+                continue
+            if req.get("a") == "stop":
+                stopped += subs.pop(sid, None) is not None
+            elif req.get("a") == "sub" and EMAIL_RE.match(str(req.get("email", ""))) and req.get("schedule") in SCHEDULES:
+                sub = {"id": sid, "trip": t["id"], "email": req["email"].strip()[:200], "schedule": req["schedule"],
+                       "hour": max(0, min(23, int(req.get("hour", 8)))), "day": max(0, min(6, int(req.get("day", 0)))),
+                       "tz": str(req.get("tz") or "America/New_York")[:60], "since": now.isoformat(timespec="seconds")}
+                try:
+                    ZoneInfo(sub["tz"])
+                except Exception:
+                    sub["tz"] = "America/New_York"
+                subs[sid] = sub
+                added += 1
+        except Exception as e:
+            print(f"  skipped a sign-up message that couldn't be read: {type(e).__name__}")
 
     # Removed on the owner's page, or the trip is gone / no longer shared.
     for sid, sub in list(subs.items()):

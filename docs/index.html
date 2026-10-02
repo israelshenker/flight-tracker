@@ -746,7 +746,11 @@ const closeMsel = () => { openMsel = null; document.querySelectorAll("details.ms
 document.addEventListener("click", e => {
   if (e.target.closest("[data-msel-done]")) { closeMsel(); return; }
   const s = e.target.closest(".msel > summary");
-  if (s) { const d = s.parentElement; openMsel = d.open ? null : d.dataset.msel; return; }
+  if (s) {  // opening one list closes any other
+    const d = s.parentElement;
+    if (!d.open) document.querySelectorAll("details.msel[open]").forEach(x => { if (x !== d) x.open = false; });
+    openMsel = d.open ? null : d.dataset.msel; return;
+  }
   if (openMsel && !e.target.closest(".msel")) closeMsel();
 });
 let tripFilter = "", dirFilter = "";  // "" = all trips; "none" = routes in no trip; else a trip id. dirFilter: "", "going", "back"
@@ -766,11 +770,10 @@ function compareHtml(watches) {
       continue;
     }
     const skip = skipFare(cur, w)?.price, one = oneFare(cur, w)?.price;
-    if (!r[w.depart] || r[w.depart].na || cur.price < r[w.depart].price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip, one, cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur, w), bag: bagNote(cur)};
-    else {
-      if (skip && (!r[w.depart].skip || skip < r[w.depart].skip)) r[w.depart].skip = skip;
-      if (one && (!r[w.depart].one || one < r[w.depart].one)) r[w.depart].one = one;
-    }
+    const old = r[w.depart]?.na ? null : r[w.depart];
+    const lower = (a, b) => a == null ? b : b == null ? a : Math.min(a, b);
+    if (!old || cur.price < old.price) r[w.depart] = {price: cur.price, key: wKey(w), airline: cur.airline, skip: lower(skip, old?.skip), one: lower(one, old?.one), cls: moveClass(cur), dot: moveDot(cur), tip: moveTitle(cur, w), bag: bagNote(cur)};
+    else { old.skip = lower(skip, old.skip); old.one = lower(one, old.one); }
     rows.set(`${w.origin}-${w.dest}`, r);
   }
   if (!rows.size) return `<div class="panel empty"><p class="muted">No one-way fares to compare yet.</p></div>`;
@@ -856,6 +859,8 @@ function tripGoing(legs, trip) {
   return new Map(legs.map(w => [wKey(w), !!w.return || FLORIDA_AIRPORTS.has(w.origin) === side]));
 }
 const goingSelect = (t, attrs) => `<select ${attrs}><option value="">Going: guess from the first flight</option><option value="from_fl"${t.going === "from_fl" ? " selected" : ""}>Going = leaving Florida</option><option value="to_fl"${t.going === "to_fl" ? " selected" : ""}>Going = heading to Florida</option></select>`;
+// The routes on one date that the page shows (the trip filter applies), for date-wide actions.
+const onDay = (dep, ret) => filterByTrip(tracked()).filter(w => w.depart === dep && (w.return || "") === ret);
 function filterByTrip(watches) {
   if (!tripFilter) return watches;
   if (tripFilter === "none") return watches.filter(w => !(w.trips || []).length);
@@ -950,7 +955,9 @@ function tripBestHtml() {
   // Same airports both ways: Coming back goes from where Going landed, back to where it left.
   // Same departure: Coming back lands where Going left. Same destination: Coming back leaves where Going landed.
   const pairOk = (o, b) => !b || !rtAirport || ((rtAirport === "dest" || b.to === o.from) && (rtAirport === "dep" || b.from === o.to));
-  const plan = planTrip(cands(true, rtOut), backDates.length ? cands(false, rtBack) : [], t.car, pairOk);
+  // A round trip with no return fare left (no fare yet, or filtered out) has no total.
+  const backs = backDates.length ? cands(false, rtBack) : [];
+  const plan = backDates.length && !backs.length ? null : planTrip(cands(true, rtOut), backs, t.car, pairOk);
   const out = plan?.out, back = plan?.back;
   // One round-trip ticket: both nonstop on the same airline, the return reversing the route.
   const oneTicket = out && back && out.kind === "nonstop" && back.kind === "nonstop" && out.flight && back.flight
@@ -963,7 +970,7 @@ function tripBestHtml() {
   const leg = (x, label, sel) => `<div class="cline" style="gap:8px;flex-wrap:wrap;white-space:normal"><span class="tag">${label}</span>${sel}${x
     ? `<a href="#r=${encodeURIComponent(wKey(x.w))}" data-open-route="${esc(wKey(x.w))}"><b>${esc(x.w.origin)} → ${esc(x.w.dest)}</b></a>
       <span class="muted small">${esc(niceDate(x.w.depart))}${x.departs ? ` · ${esc(timeLabel(x.departs))}` : ""}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b style="margin-left:auto" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>${x.book ? ` <a class="small" href="${esc(x.book)}" target="_blank" rel="noopener noreferrer">Book ↗</a>` : ""}`
-    : `<span class="muted small">no fare on that date</span>`}</div>`;
+    : `<span class="muted small">no fare with these choices</span>`}</div>`;
   return `<div class="card" style="border-color:var(--accent)">
     <div class="row" style="margin:0 0 6px;align-items:center"><b>Cheapest ${backDates.length ? "round trip" : "flight"} for ${esc(t.name)}</b>
       <div class="seg" style="font-size:13px"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}>Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}>Best price</label></div>
@@ -1320,7 +1327,8 @@ function render() {
 
   renderViewSwitch();
   if (!all.length) {
-    $("list").innerHTML = `<div class="panel empty"><h2>Nothing is being tracked</h2><p class="muted">Click <b>+ Add flights</b> to pick airports and dates.</p></div>`;
+    $("list").innerHTML = `<div class="toolbar"><button class="link small" data-recent-alerts="1">Recent alerts</button><button class="link small" data-archived="1">Archived</button></div>`
+      + (alertView ? alertHtml() : archiveView ? archiveHtml() : `<div class="panel empty"><h2>Nothing is being tracked</h2><p class="muted">Click <b>+ Add flights</b> to pick airports and dates.</p></div>`);
     return;
   }
   if (!watches.length) {
@@ -1709,7 +1717,7 @@ function openEdit(key) {
   $("editBelow").value = targetFor(w) ?? "";
   $("editBook").checked = !!w.book;
   $("editTimeLabel").textContent = w.return ? "Outbound flight leaving between" : "Leaving between";
-  const sameDay = tracked().filter(x => x.depart === w.depart && (x.return || "") === (w.return || "")).length;
+  const sameDay = onDay(w.depart, w.return || "").length;
   $("editAll").checked = false;
   $("editAll").closest(".row").hidden = sameDay < 2;
   $("editAllLabel").textContent = `Apply to all ${sameDay} routes on ${niceDate(w.depart)}${w.return ? ` returning ${niceDate(w.return)}` : ""}`;
@@ -1727,7 +1735,8 @@ $("btnSaveEdit").onclick = () => {
   const all = $("editAll").checked && !$("editAll").closest(".row").hidden;
   const keep = $("editKeep").checked;
   if (!needToken(() => { show("editPanel"); $("btnSaveEdit").click(); })) return;
-  const matches = x => all ? x.depart === w.depart && (x.return || "") === (w.return || "") : wKey(x) === key;
+  const day = new Set(onDay(w.depart, w.return || "").map(wKey));
+  const matches = x => all ? day.has(wKey(x)) : wKey(x) === key;
   save(async () => {
     await updateConfig(c => {
       for (const x of c.watches) {
@@ -1889,7 +1898,7 @@ document.addEventListener("change", e => {
   if (t.dataset?.sel) { t.checked ? selected.add(t.dataset.sel) : selected.delete(t.dataset.sel); render(); }
   else if (t.dataset?.selDay) {
     const [dep, ret] = t.dataset.selDay.split("|");
-    const keys = tracked().filter(w => w.depart === dep && (w.return || "") === ret).map(wKey);
+    const keys = onDay(dep, ret).map(wKey);
     const all = keys.every(k => selected.has(k));
     for (const k of keys) all ? selected.delete(k) : selected.add(k);
     render();
@@ -2029,7 +2038,7 @@ function bulkSkiplagged(on) {
 document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b || b.disabled) return;
-  if (b.dataset.compare) { compareMode = !compareMode; render(); window.scrollTo({top: 0}); }
+  if (b.dataset.compare) { compareMode = !compareMode; alertView = null; archiveView = null; render(); window.scrollTo({top: 0}); }
   else if (b.dataset.sortDate) { sortDate = sortDate === b.dataset.sortDate ? null : b.dataset.sortDate; render(); }
   else if (b.dataset.selectMode) { selectMode = true; selected.clear(); show(null); render(); }
   else if (b.dataset.selAll) { for (const w of filterByTrip(tracked())) selected.add(wKey(w)); render(); }  // only what the Trip filter shows
@@ -2083,19 +2092,19 @@ document.addEventListener("click", e => {
   else if (b.dataset.foldDay) { const g = b.dataset.foldDay; folded.openDays.has(g) ? folded.openDays.delete(g) : folded.openDays.add(g); saveFolded(); render(); }
   else if (b.dataset.foldAll) {
     const [dep, ret] = b.dataset.foldAll.split("|");
-    const keys = tracked().filter(w => w.depart === dep && (w.return || "") === ret && latest[wKey(w)]?.price != null).map(wKey);
+    const keys = onDay(dep, ret).filter(w => latest[wKey(w)]?.price != null).map(wKey);
     const collapse = !keys.every(k => !folded.openRoutes.has(k));
     for (const k of keys) collapse ? folded.openRoutes.delete(k) : folded.openRoutes.add(k);
     saveFolded(); render();
   }
   else if (b.dataset.stopNone) {
     const [dep, ret] = b.dataset.stopNone.split("|");
-    stopKeys(tracked().filter(w => w.depart === dep && (w.return || "") === ret && latest[wKey(w)] && latest[wKey(w)].price == null && !isGone(latest[wKey(w)])).map(wKey),
+    stopKeys(onDay(dep, ret).filter(w => latest[wKey(w)] && latest[wKey(w)].price == null && !isGone(latest[wKey(w)])).map(wKey),
       `${niceDate(dep)} that have no nonstop flights`);
   }
   else if (b.dataset.editDay) {  // opens the edit panel for the whole date (bags, times, passengers, alert)
     const [dep, ret] = b.dataset.editDay.split("|");
-    const first = tracked().find(w => w.depart === dep && (w.return || "") === ret);
+    const first = onDay(dep, ret)[0];
     if (first) {
       openEdit(wKey(first));
       if (!$("editAll").closest(".row").hidden) $("editAll").checked = true;
@@ -2103,7 +2112,7 @@ document.addEventListener("click", e => {
   }
   else if (b.dataset.stopGroup) {
     const [dep, ret] = b.dataset.stopGroup.split("|");
-    stopKeys(tracked().filter(w => w.depart === dep && (w.return || "") === ret).map(wKey), niceDate(dep));
+    stopKeys(onDay(dep, ret).map(wKey), niceDate(dep));
   }
 });
 
@@ -2141,7 +2150,7 @@ $("btnCheck").onclick = () => {
 async function save(action, msgEl) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll("button").forEach(b => b.disabled = true);
+  document.querySelectorAll("button:not(:disabled)").forEach(b => { b.disabled = true; b.dataset.saving = "1"; });
   if (msgEl) { msgEl.className = "msg"; msgEl.textContent = "Saving…"; }
   try {
     await action();
@@ -2162,7 +2171,7 @@ async function save(action, msgEl) {
     if (msgEl && e.status !== 401) { msgEl.className = "msg bad"; msgEl.textContent = text; } else alert(text);
   } finally {
     busy = false;
-    document.querySelectorAll("button").forEach(b => b.disabled = false);
+    document.querySelectorAll("button[data-saving]").forEach(b => { b.disabled = false; delete b.dataset.saving; });
   }
 }
 

@@ -116,7 +116,7 @@ function ago(s) {
   const h = Math.round(m / 60);
   return h < 24 ? `${h} hr ago` : `${Math.round(h / 24)} days ago`;
 }
-const timeLabel = hhmm => { const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+const timeLabel = hhmm => { if (!hhmm) return ""; const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
 function sparkline(prices) {
   const v = prices.filter(p => p != null);
   if (v.length < 2) return "";
@@ -157,12 +157,17 @@ const closeMsel = () => { openMsel = null; document.querySelectorAll("details.ms
 document.addEventListener("click", e => {
   if (e.target.closest("[data-msel-done]")) { closeMsel(); return; }
   const s = e.target.closest(".msel > summary");
-  if (s) { const d = s.parentElement; openMsel = d.open ? null : d.dataset.msel; return; }
+  if (s) {  // opening one list closes any other
+    const d = s.parentElement;
+    if (!d.open) document.querySelectorAll("details.msel[open]").forEach(x => { if (x !== d) x.open = false; });
+    openMsel = d.open ? null : d.dataset.msel; return;
+  }
   if (openMsel && !e.target.closest(".msel")) closeMsel();
 });  // cheapest round trip card: its own switch and dates
 let sortBest = false;  // false = order by the nonstop fare, true = by the cheapest of the three
 const sortBy = {};  // per table ("Going", "Coming back", "Flights"): a date, "route", or nothing
 let trip = null, open = null, shareId = null, shareKey = null, stopId = null, signupOpen = false;
+let signupDone = "";  // the "You're signed up" / "Done" message, kept when the page redraws
 // Read the trip file straight from the newest saved version on GitHub, so a check's new fares
 // show up seconds after it saves (the published site takes a minute or two to rebuild). If
 // GitHub's API is unavailable (it allows 60 requests an hour per visitor), use the published copy.
@@ -289,9 +294,9 @@ function detail(i) {
     ${!airlineRows && l.last_airlines ? `<div class="tablewrap" style="margin-top:8px"><table><thead><tr><th>Airline</th><th class="num">Last fare before it went</th></tr></thead><tbody>${Object.entries(l.last_airlines).sort((a, b) => a[1] - b[1]).map(([a, p]) => `<tr><td>${esc(a)}</td><td class="num">$${p}</td></tr>`).join("")}</tbody></table></div>` : ""}
     ${flightRows ? `<details><summary>All ${l.flights.length} nonstop flight${l.flights.length > 1 ? "s" : ""}</summary><div class="tablewrap"><table><thead><tr><th>Departs</th><th>Flight</th><th class="num">Fare</th></tr></thead><tbody>${flightRows}</tbody></table></div></details>` : ""}
     ${bagNote(l) ? `<div class="bagnote">⚠ ${esc(bagNote(l))}</div>` : ""}
-    ${l.onestop ? `<div class="skipnote"><span class="stop1">1 stop</span> <b>$${l.onestop.price}</b>${l.price != null ? ` <span class="muted">($${l.price - l.onestop.price} less)</span>` : ""} · ${esc(l.onestop.airline)} ${esc(timeLabel(l.onestop.departs))} · changes planes in ${esc(l.onestop.via)}, ${Math.floor(l.onestop.layover / 60)}h ${String(l.onestop.layover % 60).padStart(2, "0")}m between flights${l.onestop.arrives ? ` · arrives ${esc(timeLabel(l.onestop.arrives))}` : ""}${l.link1 ? ` · <a href="${esc(l.link1)}" target="_blank" rel="noopener noreferrer">1-stop flights on Google Flights ↗</a>` : ""}</div>` : ""}
+    ${l.onestop ? `<div class="skipnote"><span class="stop1">1 stop</span> <b>$${l.onestop.price}</b>${l.price != null ? ` <span class="muted">($${l.price - l.onestop.price} less)</span>` : ""} · ${esc(l.onestop.airline)} ${esc(timeLabel(l.onestop.departs))} · changes planes in ${esc(l.onestop.via)}${l.onestop.layover != null ? `, ${Math.floor(l.onestop.layover / 60)}h ${String(l.onestop.layover % 60).padStart(2, "0")}m between flights` : ""}${l.onestop.arrives ? ` · arrives ${esc(timeLabel(l.onestop.arrives))}` : ""}${l.link1 ? ` · <a href="${esc(l.link1)}" target="_blank" rel="noopener noreferrer">1-stop flights on Google Flights ↗</a>` : ""}</div>` : ""}
     ${s ? `<div class="skipnote"><span class="skip">Skiplagged</span> <b>$${s.price}</b> · ${esc(s.airline)}${s.departs ? ` ${esc(timeLabel(s.departs))}` : ""} · a ticket to ${esc(s.final)} that stops in ${esc(l.d)}; you'd get off there. Carry-on only, and don't book the return on the same ticket.${s.international ? " International ticket: passport needed." : ""}</div>` : ""}
-    <div class="small" style="margin-top:10px"><a href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">Nonstop flights on Google Flights ↗</a>${l.checked_at ? ` <span class="muted">· checked ${esc(ago(l.checked_at))}</span>` : ""}</div>
+    <div class="small" style="margin-top:10px">${l.link ? `<a href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">Nonstop flights on Google Flights ↗</a>` : ""}${l.checked_at ? ` <span class="muted">· checked ${esc(ago(l.checked_at))}</span>` : ""}</div>
     ${hist.length ? `<details><summary>Price history</summary><table><tbody>${hist.slice().reverse().map(p => `<tr><td>${esc(when(p[0]))}</td><td class="num">${p[1] == null ? "no nonstops" : "$" + p[1]}</td></tr>`).join("")}</tbody></table></details>` : ""}
   </div>`;
 }
@@ -300,6 +305,7 @@ function detail(i) {
 // message relay (ntfy.sh) that the hourly check reads; it emails from there. Nothing to install.
 function signupHtml() {
   if (!trip.signup) return "";
+  if (signupDone) return `<div class="card signup">${signupDone}</div>`;
   if (stopId) return `<div class="card signup"><b>Stop the email updates for this trip?</b>
     <div style="margin-top:10px"><button class="btn" data-stop-emails="1">Stop emails</button></div><div class="msg" id="signupMsg"></div></div>`;
   if (!signupOpen) return `<div style="margin-top:14px"><button class="btn" data-signup-open="1">Email me updates</button></div>`;
@@ -419,7 +425,7 @@ function roundTripHtml() {
     const price = rtBest ? Math.min(nsPrice, oneP, skipP) : nsPrice;
     if (!isFinite(price)) return null;
     const kind = price === nsPrice ? "nonstop" : price === oneP ? "1 stop" : "skiplagged";
-    const fl = (l.flights || []).filter(f => f.flight && f.airline === nsAir).sort((x, y) => x.price - y.price || x.departs.localeCompare(y.departs))[0];
+    const fl = (l.flights || []).filter(f => f.flight && f.airline === nsAir).sort((x, y) => x.price - y.price || (x.departs || "").localeCompare(y.departs || ""))[0];
     const opt = (l.key || "").split("|")[3] || "";  // route options: c1 carry-on, b2 checked bags
     const departs = kind === "nonstop" ? fl?.departs || l.airline_times?.[nsAir]?.[0] : kind === "1 stop" ? l.onestop.departs : l.skip.departs;
     return {l, departs, book: kind === "nonstop" ? l.link : kind === "1 stop" ? l.link1 : null, flight: kind === "nonstop" ? fl?.flight : null,
@@ -432,7 +438,9 @@ function roundTripHtml() {
   // Same airports both ways: Coming back goes from where Going landed, back to where it left.
   // Same departure: Coming back lands where Going left. Same destination: Coming back leaves where Going landed.
   const pairOk = (o, b) => !b || !rtAirport || ((rtAirport === "dest" || b.to === o.from) && (rtAirport === "dep" || b.from === o.to));
-  const plan = planTrip(cands(true, rtOut), backDates.length ? cands(false, rtBack) : [], trip.car, pairOk);
+  // A round trip with no return fare left (no fare yet, or filtered out) has no total.
+  const backs = backDates.length ? cands(false, rtBack) : [];
+  const plan = backDates.length && !backs.length ? null : planTrip(cands(true, rtOut), backs, trip.car, pairOk);
   const out = plan?.out, back = plan?.back;
   // One round-trip ticket: both nonstop on the same airline, the return reversing the route.
   const oneTicket = out && back && out.kind === "nonstop" && back.kind === "nonstop" && out.flight && back.flight
@@ -441,10 +449,10 @@ function roundTripHtml() {
   const rtBookHtml = !back ? "" : rtBook
     ? `<div class="small" style="margin-top:6px"><a href="${esc(rtBook)}" target="_blank" rel="noopener noreferrer"><b>Book round trip ↗</b></a> <span class="muted">one ${esc(out.airline)} ticket; Google prices it as a round trip, which can differ from the two fares above</span></div>`
     : `<div class="small muted" style="margin-top:6px">Book the two flights separately (${out.kind !== "nonstop" || back.kind !== "nonstop" ? "not both nonstop" : out.flight?.slice(0, 2) !== back.flight?.slice(0, 2) ? "different airlines" : back.from !== out.to || back.to !== out.from ? "different airports" : "no flight numbers"}, so not one round-trip ticket).</div>`;
-  const pick = (id, dates, val) => `<select id="${id}"><option value="">Cheapest date</option>${dates.map(d => `<option value="${d}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
+  const pick = (id, dates, val) => `<select id="${id}"><option value="">Cheapest date</option>${dates.map(d => `<option value="${esc(d)}"${d === val ? " selected" : ""}>${esc(niceDate(d))}</option>`).join("")}</select>`;
   const row = (x, label, sel) => `<div class="rtleg"><span class="rtlabel">${label}</span>${sel}${x
     ? `<button class="link" data-open="${trip.legs.indexOf(x.l)}"><b>${esc(x.l.o)} → ${esc(x.l.d)}</b></button><span class="muted small">${esc(niceDate(x.l.dep))}${x.departs ? ` · ${esc(timeLabel(x.departs))}` : ""}${x.kind === "nonstop" ? "" : ` · ${x.kind}`}${x.airline ? ` · ${esc(x.airline)}` : ""}</span><b class="rtprice" title="${esc(x.bag)}">$${x.price}${x.bag ? '<span class="bagflag">*</span>' : ""}</b>${x.book ? ` <a class="small" href="${esc(x.book)}" target="_blank" rel="noopener noreferrer">Book ↗</a>` : ""}`
-    : `<span class="muted small">no fare on that date</span>`}</div>`;
+    : `<span class="muted small">no fare with these choices</span>`}</div>`;
   return `<div class="card rt"><div class="rthead"><b>Cheapest ${backDates.length ? "round trip" : "flight"}</b>
       <span class="opts small"><label><input type="radio" name="rtmode" value="nonstop"${rtBest ? "" : " checked"}> Nonstop</label><label><input type="radio" name="rtmode" value="best"${rtBest ? " checked" : ""}> Best price</label></span>
       <b class="rttotal">${plan ? `${money(plan.total)} total` : "—"}</b></div>
@@ -452,7 +460,7 @@ function roundTripHtml() {
     ${row(out, "Going", pick("rtOut", outDates, rtOut))}${backDates.length ? row(back, "Coming back", pick("rtBack", backDates, rtBack)) : ""}
     ${rtBookHtml}
     ${plan ? `<div class="small" style="margin-top:6px">${esc(planSummary(plan))}</div>` : ""}
-    <div class="muted small" style="margin-top:4px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."}${trip.car ? " Picks the dates with the lowest total, rental car included." : ""} Pick dates to price a specific trip.${[out, back].some(x => x?.bag) ? ` <span style="color:var(--up)">* bag fee not included in that fare (tap the route for details).</span>` : ""}</div></div>`;
+    <div class="muted small" style="margin-top:4px">${rtBest ? "Best price counts 1-stop and skiplagged fares." : "Nonstop fares only."}${backDates.length && (trip.car?.day || Object.keys(trip.car?.at || {}).length) ? " Picks the dates with the lowest total, rental car included." : ""} Pick dates to price a specific trip.${[out, back].some(x => x?.bag) ? ` <span style="color:var(--up)">* bag fee not included in that fare (tap the route for details).</span>` : ""}</div></div>`;
 }
 function render() {
   const airports = [...new Set(trip.legs.flatMap(l => [l.o, l.d]))].sort();
@@ -480,7 +488,7 @@ document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b) return;
   if (b.dataset.sort) {
-    const [dir, key] = b.dataset.sort.split("|");
+    const cut = b.dataset.sort.indexOf("|"), dir = b.dataset.sort.slice(0, cut), key = b.dataset.sort.slice(cut + 1);
     sortBy[dir] = sortBy[dir] === key ? null : key;
     const wraps = [...document.querySelectorAll(".tablewrap")].map(w => w.scrollLeft);  // stay where you were
     render();
@@ -497,13 +505,13 @@ document.addEventListener("click", e => {
     const id = [...crypto.getRandomValues(new Uint8Array(8))].map(x => x.toString(16).padStart(2, "0")).join("");
     b.disabled = true;
     post({a: "sub", id, email, schedule: when, hour: +$("suHour").value, day: +$("suDay").value, tz: Intl.DateTimeFormat().resolvedOptions().timeZone})
-      .then(() => { $("app").querySelector(".signup").innerHTML = `<b>You're signed up.</b><div class="small muted" style="margin-top:6px">The first email, with today's fares, arrives within about an hour at ${esc(email)}.</div>`; },
+      .then(() => { signupDone = `<b>You're signed up.</b><div class="small muted" style="margin-top:6px">The first email, with today's fares, arrives within about an hour at ${esc(email)}.</div>`; render(); },
             () => { b.disabled = false; say("Couldn't sign you up. Check your connection and try again."); });
   }
   else if (b.dataset.stopEmails) {
     b.disabled = true;
     post({a: "stop", id: stopId})
-      .then(() => { $("app").querySelector(".signup").innerHTML = `<b>Done.</b><div class="small muted" style="margin-top:6px">The emails stop within about an hour.</div>`; },
+      .then(() => { signupDone = `<b>Done.</b><div class="small muted" style="margin-top:6px">The emails stop within about an hour.</div>`; render(); },
             () => { b.disabled = false; say("Couldn't reach the server. Try again."); });
   }
 });

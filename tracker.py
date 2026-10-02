@@ -1179,7 +1179,7 @@ def trip_legs(cfg, latest, t, trails):
                "pax": parse_options(options_code(w))["adults"] or adults,
                "bagless": e.get("bagless") or {},
                "onestop": e.get("onestop") if e.get("onestop") and e.get("price") and e["onestop"]["price"] < e["price"]
-                          and k not in onestop_off else None}
+                          and k not in onestop_off and cfg.get("onestop") is not False else None}
         h = e.get("hidden")
         if (t.get("skiplagged") and h and cfg.get("skiplagged", True) and k not in no_skip
                 and not (h.get("international") and not is_international(w["dest"])
