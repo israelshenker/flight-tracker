@@ -1199,7 +1199,9 @@ function render() {
   const warns = [];
   const errs = state.last_run?.errors || [];
   if (errs.length) warns.push(`${errs.length} Google search(es) failed on the last check: ${esc(errs.slice(0, 3).join("; "))}${errs.length > 3 ? "…" : ""}`);
-  $("warnings").innerHTML = warns.map(w => `<div class="warn">${w}</div>`).join("");
+  const extra = state.last_run?.extra_errors || 0;  // refused 1-stop / skiplagged lookups: a quiet note, not a failure
+  $("warnings").innerHTML = warns.map(w => `<div class="warn">${w}</div>`).join("")
+    + (extra ? `<div class="small muted" style="margin:6px 0">Google blocked ${extra} of the 1-stop / skiplagged lookups on the last check; they'll be tried again next hour. Nonstop fares aren't affected.</div>` : "");
 
   renderViewSwitch();
   if (!all.length) {

@@ -3,6 +3,7 @@ name: Check flight prices
 on:
   schedule:
     - cron: "17 * * * *"   # every hour (GitHub may start it a bit late)
+    - cron: "47 * * * *"   # backup: GitHub sometimes skips a scheduled run; this one checks only if the last full check is 45+ minutes old
   push:                     # a change on the web page: check new flights right away
     branches: [main]
     paths: [config.json]
@@ -49,6 +50,8 @@ jobs:
             python notify.py
           elif [ "${{ github.event_name }}" = "push" ]; then
             python tracker.py search --new
+          elif [ "${{ github.event.schedule }}" = "47 * * * *" ]; then
+            python tracker.py search --backup
           else
             python tracker.py search
           fi

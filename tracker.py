@@ -578,7 +578,13 @@ def onestop_search(cfg, latest, fares, errors, started, adults, stamp):
                         print("  1-stop: out of time; the rest go first next run")
                         return
                     left -= 1
-                    tickets += per_person(google_flights.feed_search(dep, os_, ds, pax, carry, checked, max_stops=1), pax)
+                    try:
+                        found_now = google_flights.feed_search(dep, os_, ds, pax, carry, checked, max_stops=1)
+                    except google_flights.Blocked:
+                        print("  retrying a 1-stop search")
+                        time.sleep(10 + random.random() * 10)
+                        found_now = google_flights.feed_search(dep, os_, ds, pax, carry, checked, max_stops=1)
+                    tickets += per_person(found_now, pax)
                     time.sleep(2 + random.random() * 3)
         except Exception as e:
             errors.append(f"1-stop {dep}: {type(e).__name__}")
@@ -668,13 +674,21 @@ def route_link(key):
     return f"{PAGE_URL}#r={urllib.parse.quote(key, safe='')}"
 
 
-def search(only_new=False, travel_day=False):
+BACKUP_IF_OLDER_THAN = timedelta(minutes=45)
+
+
+def search(only_new=False, travel_day=False, backup=False):
     """Search fares, send alerts, and write this run's results to RESULTS.
     travel_day: the 15-minute check of routes departing today (Eastern), user's request:
     seats can open up during the day. Everything else stays on the hourly check."""
     if not CONFIG.exists():
         print("No config.json yet. Add flights on the web page first.")
         return 0
+    if backup:  # the :47 start: only if GitHub skipped (or hasn't finished) this hour's check
+        last = (read_json(STATE, {}).get("last_run") or {}).get("at")
+        if last and datetime.now(timezone.utc) - datetime.fromisoformat(last) < BACKUP_IF_OLDER_THAN:
+            print("The hourly check ran; nothing to do.")
+            return 0
     cfg = read_json(CONFIG, {})
     if travel_day:
         today = local_today().isoformat()
@@ -735,6 +749,7 @@ def search(only_new=False, travel_day=False):
 
     started = time.monotonic()
     fares, errors, done, empty_streaks = {}, [], 0, {}
+    extra_errors = []  # 1-stop and skiplagged lookups Google refused; nonstop fares don't depend on them
     for i, (dep, ret, carry, checked, pax, origins, dests, covered) in enumerate(searches):
         if time.monotonic() - started > TIME_BUDGET_SECONDS:
             print(f"  Time budget reached; {len(searches) - i} searches left for next run.")
@@ -790,8 +805,8 @@ def search(only_new=False, travel_day=False):
                 f["one_ways"] = {"out": po, "back": pb, "total": po["price"] + pb["price"]}
 
     if cfg.get("skiplagged", True):
-        hidden_search(cfg, latest, fares, errors, started, adults, stamp)
-    onestop_search(cfg, latest, fares, errors, started, adults, stamp)  # has its own on/off switch
+        hidden_search(cfg, latest, fares, extra_errors, started, adults, stamp)
+    onestop_search(cfg, latest, fares, extra_errors, started, adults, stamp)  # has its own on/off switch
 
     # Google's "bags unknown" mark on routes with no bags also covers airlines whose bags it can
     # price (United, Breeze). Keep it only for airlines it actually failed to price on a route
@@ -955,10 +970,11 @@ def search(only_new=False, travel_day=False):
         "last_run": {"at": stamp, "searched": len(fares), "total": len(routes), "searches": attempted,
                      # Routes with no nonstop flights are only looked at once a day; the page says so
                      # instead of making it look like they were skipped for lack of time.
-                     "daily": len(routes) - len(todo), "errors": errors[:20],
+                     "daily": len(routes) - len(todo), "errors": errors[:20], "extra_errors": len(extra_errors),
                      "only_new": only_new or travel_day},  # travel-day checks don't replace the hourly summary
     }, sort_keys=True), encoding="utf-8")
-    print(f"{len(lines)} alert lines ({dict(counts)}), {len(errors)} errors")
+    print(f"{len(lines)} alert lines ({dict(counts)}), {len(errors)} errors"
+          f"{f', {len(extra_errors)} 1-stop/skiplagged lookups refused' if extra_errors else ''}")
     return 0
 
 
@@ -1337,7 +1353,7 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     only_new = "--new" in sys.argv
     if cmd == "search":
-        sys.exit(search(only_new, travel_day="--today" in sys.argv))
+        sys.exit(search(only_new, travel_day="--today" in sys.argv, backup="--backup" in sys.argv))
     if cmd == "merge":
         sys.exit(merge())
     if cmd == "failed":
